@@ -27,15 +27,15 @@ Any plugin which reduces the player inventory space to less than 24 is not compa
 
 ## Developer API
 
-NOTICE: Other plugins are responsible for removing container associations. The only exception is that if another plugin unloads, its associations will be automatically removed. Further improvements may be introduced in the future.
-
 #### API_AddContainer
 
 ```cs
-void API_AddContainer(Plugin plugin, BasePlayer player, ItemContainer container)
+API_AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
 ```
 
-Adds the specified container to the specified player, under the specified plugin.
+- Adds the specified container to the specified player, under the specified plugin
+- When the container entity is provided, the container association will automatically be cleaned up when that entity is destroyed
+- If the `canUseContainer` delegate is provided, the plugin will call it each time it wants to potentially use a container, to evaluate whether items may be pulled from that container
 
 #### API_RemoveContainer
 

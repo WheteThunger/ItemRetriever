@@ -1,4 +1,5 @@
-﻿using Oxide.Core.Plugins;
+﻿using Oxide.Core;
+using Oxide.Core.Plugins;
 using Oxide.Core.Libraries.Covalence;
 using Rust;
 using System;
@@ -8,7 +9,7 @@ using static BaseEntity;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Sourcer", "WhiteThunder", "0.1.0")]
+    [Info("Item Sourcer", "WhiteThunder", "0.2.0")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemSourcer : CovalencePlugin
     {
@@ -21,18 +22,16 @@ namespace Oxide.Plugins
 
         private const string PermissionAdmin = "itemsourcer.admin";
 
+        private object True = true;
         private object False = false;
 
         private ContainerManager _containerManager = new ContainerManager();
 
+        private bool _callingCanCraft = false;
+
         #endregion
 
         #region Hooks
-
-        private void Init()
-        {
-            permission.RegisterPermission(PermissionAdmin, this);
-        }
 
         private void Unload()
         {
@@ -80,6 +79,53 @@ namespace Oxide.Plugins
             return False;
         }
 
+        private object OnIngredientsCollect(ItemCrafter itemCrafter, ItemBlueprint blueprint, ItemCraftTask task, int amount, BasePlayer player)
+        {
+            var collect = new List<Item>();
+            foreach (ItemAmount ingredient in blueprint.ingredients)
+            {
+                TakePlayerItems(player, collect, ingredient.itemid, (int)ingredient.amount * amount);
+            }
+
+            task.potentialOwners = new List<ulong>();
+
+            foreach (Item item in collect)
+            {
+                item.CollectedForCrafting(player);
+                if (!task.potentialOwners.Contains(player.userID))
+                {
+                    task.potentialOwners.Add(player.userID);
+                }
+            }
+
+            task.takenItems = collect;
+            return False;
+        }
+
+        private object CanCraft(ItemCrafter itemCrafter, ItemBlueprint blueprint, int amount, bool free)
+        {
+            if (_callingCanCraft)
+                return null;
+
+            _callingCanCraft = true;
+
+            var canCraftResult = Interface.Oxide.CallHook("CanCraft", itemCrafter, blueprint, amount, free);
+            if (canCraftResult != null)
+                return null;
+
+            _callingCanCraft = false;
+
+            var basePlayer = itemCrafter.baseEntity;
+
+            foreach (ItemAmount ingredient in blueprint.ingredients)
+            {
+                if (SumPlayerItems(basePlayer, ingredient.itemid) < ingredient.amount * amount)
+                    return null;
+            }
+
+            return True;
+        }
+
         #endregion
 
         #region Commands
@@ -105,7 +151,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            _containerManager.AddContainer(this, basePlayer, containerEntity.inventory);
+            _containerManager.AddContainer(this, basePlayer, containerEntity, containerEntity.inventory);
             SendInventoryUpdate(basePlayer);
             player.Reply($"Successfully added container.");
         }
@@ -150,7 +196,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            _containerManager.AddContainer(this, basePlayer, container);
+            _containerManager.AddContainer(this, basePlayer, container.entityOwner as IItemContainerEntity, container);
             SendInventoryUpdate(basePlayer);
             player.Reply($"Successfully added Backpack container.");
         }
@@ -179,9 +225,9 @@ namespace Oxide.Plugins
         #region API
 
         [HookMethod(nameof(API_AddContainer))]
-        public void API_AddContainer(Plugin plugin, BasePlayer player, ItemContainer container)
+        public void API_AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
         {
-            if (_containerManager.AddContainer(plugin, player, container))
+            if (_containerManager.AddContainer(plugin, player, containerEntity, container, canUseContainer))
             {
                 SendInventoryUpdate(player);
             }
@@ -285,17 +331,26 @@ namespace Oxide.Plugins
             return highestUsedSlot;
         }
 
-        private int AddContainerItems(ProtoBuf.ItemContainer containerData, ItemContainer container, ref int nextInvisibleSlot)
+        private int AddContainerItemForNetwork(ProtoBuf.ItemContainer containerData, ItemContainer container, ref int nextInvisibleSlot, bool addChildContainersOnly = false)
         {
             var itemsAdded = 0;
 
             foreach (var item in container.itemList)
             {
-                var itemData = item.Save();
-                itemData.slot = nextInvisibleSlot++;
+                if (!addChildContainersOnly)
+                {
+                    var itemData = item.Save();
+                    itemData.slot = nextInvisibleSlot++;
 
-                containerData.contents.Add(itemData);
-                itemsAdded++;
+                    containerData.contents.Add(itemData);
+                    itemsAdded++;
+                }
+
+                ItemContainer childContainer;
+                if (HasSearchableContainer(item, out childContainer))
+                {
+                    itemsAdded += AddContainerItemForNetwork(containerData, childContainer, ref nextInvisibleSlot);
+                }
             }
 
             return itemsAdded;
@@ -303,33 +358,59 @@ namespace Oxide.Plugins
 
         private void AddItemsForNetwork(ProtoBuf.ItemContainer containerData, BasePlayer player)
         {
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList == null)
+            if (containerData == null)
                 return;
 
             var firstAvailableInvisibleSlot = Math.Max(InventorySize, GetHighestUsedSlot(containerData) + 1);
             var nextInvisibleSlot = firstAvailableInvisibleSlot;
             var itemsAdded = 0;
 
-            foreach (var containerEntry in containerList)
+            // Add child containers.
+            itemsAdded += AddContainerItemForNetwork(containerData, player.inventory.containerMain, ref nextInvisibleSlot, addChildContainersOnly: true);
+            itemsAdded += AddContainerItemForNetwork(containerData, player.inventory.containerBelt, ref nextInvisibleSlot, addChildContainersOnly: true);
+            itemsAdded += AddContainerItemForNetwork(containerData, player.inventory.containerWear, ref nextInvisibleSlot, addChildContainersOnly: true);
+
+            var containerList = _containerManager.GetContainerList(player);
+            if (containerList != null)
             {
-                itemsAdded += AddContainerItems(containerData, containerEntry.Container, ref nextInvisibleSlot);
+                // Add external containers.
+                foreach (var containerEntry in containerList)
+                {
+                    itemsAdded += AddContainerItemForNetwork(containerData, containerEntry.Container, ref nextInvisibleSlot);
+                }
             }
 
-            containerData.slots = firstAvailableInvisibleSlot + itemsAdded;
+            if (itemsAdded > 0)
+            {
+                containerData.slots = firstAvailableInvisibleSlot + itemsAdded;
+            }
+        }
+
+        private bool ItemMatches(Item item, int itemId, ulong skinId)
+        {
+            if (item.info.itemid != itemId)
+                return false;
+
+            if (skinId != 0 && item.skin != skinId)
+                return false;
+
+            return true;
         }
 
         private void FindContainerItems(ItemContainer container, List<Item> collect, int itemId, ulong skinId = 0)
         {
             foreach (var item in container.itemList)
             {
-                if (item.info.itemid != itemId)
-                    continue;
+                if (ItemMatches(item, itemId, skinId))
+                {
+                    collect.Add(item);
+                }
 
-                if (skinId != 0 && item.skin != skinId)
-                    continue;
-
-                collect.Add(item);
+                ItemContainer childContainer;
+                if (HasSearchableContainer(item, out childContainer))
+                {
+                    FindContainerItems(childContainer, collect, itemId, skinId);
+                }
             }
         }
 
@@ -339,9 +420,13 @@ namespace Oxide.Plugins
             FindContainerItems(player.inventory.containerBelt, collect, itemId, skinId);
             FindContainerItems(player.inventory.containerWear, collect, itemId, skinId);
 
-            foreach (var containerEntry in _containerManager.GetContainerList(player))
+            var containerList = _containerManager.GetContainerList(player);
+            if (containerList != null)
             {
-                FindContainerItems(containerEntry.Container, collect, itemId, skinId);
+                foreach (var containerEntry in containerList)
+                {
+                    FindContainerItems(containerEntry.Container, collect, itemId, skinId);
+                }
             }
         }
 
@@ -351,13 +436,16 @@ namespace Oxide.Plugins
 
             foreach (var item in container.itemList)
             {
-                if (item.info.itemid != itemId)
-                    continue;
+                if (ItemMatches(item, itemId, skinId))
+                {
+                    count += item.amount;
+                }
 
-                if (skinId != 0 && item.skin != skinId)
-                    continue;
-
-                count += item.amount;
+                ItemContainer childContainer;
+                if (HasSearchableContainer(item, out childContainer))
+                {
+                    count += SumContainerItems(childContainer, itemId, skinId);
+                }
             }
 
             return count;
@@ -369,9 +457,13 @@ namespace Oxide.Plugins
                 + SumContainerItems(player.inventory.containerBelt, itemId, skinId)
                 + SumContainerItems(player.inventory.containerWear, itemId, skinId);
 
-            foreach (var containerEntry in _containerManager.GetContainerList(player))
+            var containerList = _containerManager.GetContainerList(player);
+            if (containerList != null)
             {
-                sum += SumContainerItems(containerEntry.Container, itemId, skinId);
+                foreach (var containerEntry in containerList)
+                {
+                    sum += SumContainerItems(containerEntry.Container, itemId, skinId);
+                }
             }
 
             return sum;
@@ -388,47 +480,50 @@ namespace Oxide.Plugins
                     break;
 
                 var item = container.itemList[i];
-                if (item.info.itemid != itemId)
-                    continue;
-
-                if (skinId != 0 && item.skin != skinId)
-                    continue;
-
-                amountToTake = Math.Min(item.amount, amountToTake);
-
-                if (item.amount > amountToTake)
+                if (ItemMatches(item, itemId, skinId))
                 {
-                    if (collect != null)
+                    amountToTake = Math.Min(item.amount, amountToTake);
+
+                    if (item.amount > amountToTake)
                     {
-                        var splitItem = item.SplitItem(amountToTake);
-                        var playerOwner = splitItem.GetOwnerPlayer();
-                        if (playerOwner != null)
+                        if (collect != null)
                         {
-                            splitItem.CollectedForCrafting(playerOwner);
+                            var splitItem = item.SplitItem(amountToTake);
+                            var playerOwner = splitItem.GetOwnerPlayer();
+                            if (playerOwner != null)
+                            {
+                                splitItem.CollectedForCrafting(playerOwner);
+                            }
+                            collect.Add(splitItem);
                         }
-                        collect.Add(splitItem);
+                        else
+                        {
+                            item.amount -= amountToTake;
+                            item.MarkDirty();
+                        }
                     }
                     else
                     {
-                        item.amount -= amountToTake;
-                        item.MarkDirty();
+                        item.RemoveFromContainer();
+
+                        if (collect != null)
+                        {
+                            collect.Add(item);
+                        }
+                        else
+                        {
+                            item.Remove();
+                        }
                     }
+
+                    totalAmountTaken += amountToTake;
                 }
-                else
+
+                ItemContainer childContainer;
+                if (HasSearchableContainer(item, out childContainer))
                 {
-                    item.RemoveFromContainer();
-
-                    if (collect != null)
-                    {
-                        collect.Add(item);
-                    }
-                    else
-                    {
-                        item.Remove();
-                    }
+                    totalAmountTaken += TakeContainerItems(childContainer, collect, itemId, amountToTake, skinId);
                 }
-
-                totalAmountTaken += amountToTake;
 
                 if (totalAmountTaken >= totalAmountToTake)
                     return totalAmountTaken;
@@ -451,13 +546,16 @@ namespace Oxide.Plugins
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            foreach (var containerEntry in _containerManager.GetContainerList(player))
+            var containerList = _containerManager.GetContainerList(player);
+            if (containerList != null)
             {
-                amountTaken += TakeContainerItems(containerEntry.Container, collect, itemId, amountToTake - amountTaken, skinId);
-                if (amountTaken >= amountToTake)
-                    return amountTaken;
+                foreach (var containerEntry in containerList)
+                {
+                    amountTaken += TakeContainerItems(containerEntry.Container, collect, itemId, amountToTake - amountTaken, skinId);
+                    if (amountTaken >= amountToTake)
+                        return amountTaken;
+                }
             }
-
             return amountTaken;
         }
 
@@ -473,38 +571,123 @@ namespace Oxide.Plugins
                 player.inventory.containerBelt.FindAmmo(collect, ammoType);
             }
 
-            foreach (var containerEntry in _containerManager.GetContainerList(player))
+            var containerList = _containerManager.GetContainerList(player);
+            if (containerList != null)
             {
-                containerEntry.Container.FindAmmo(collect, ammoType);
+                foreach (var containerEntry in containerList)
+                {
+                    containerEntry.Container.FindAmmo(collect, ammoType);
+                }
             }
+        }
+
+        private bool HasItemMod<T>(ItemDefinition itemDefinition) where T : ItemMod
+        {
+            foreach (var itemMod in itemDefinition.itemMods)
+            {
+                if (itemMod is T)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool HasSearchableContainer(Item item, out ItemContainer container)
+        {
+            container = item.contents;
+            if (container == null)
+                return false;
+
+            // Don't consider vanilla containers searchable (i.e., don't take low grade out of a miner's hat).
+            return !HasItemMod<ItemModContainer>(item.info);
         }
 
         #endregion
 
         #region Container Manager
 
+        private class EntityTracker : FacepunchBehaviour
+        {
+            public static EntityTracker AddToEntity(BaseEntity entity, ContainerManager containerManager)
+            {
+                var entityTracker = entity.gameObject.AddComponent<EntityTracker>();
+                entityTracker._entity = entity;
+                entityTracker._containerManager = containerManager;
+                return entityTracker;
+            }
+
+            private BaseEntity _entity;
+            private ContainerManager _containerManager;
+            private List<ContainerEntry> _containerList = new List<ContainerEntry>();
+
+            public void AddContainer(ContainerEntry containerEntry)
+            {
+                _containerList.Add(containerEntry);
+            }
+
+            public void RemoveContainer(ContainerEntry containerEntry)
+            {
+                if (!_containerList.Remove(containerEntry))
+                    return;
+
+                if (_containerList.Count == 0 && _entity != null && !_entity.IsDestroyed)
+                {
+                    DestroyImmediate(this);
+                }
+            }
+
+            private void OnDestroy()
+            {
+                var entityDestroyed = _entity == null || _entity.IsDestroyed;
+
+                for (var i = _containerList.Count - 1; i >= 0; i--)
+                {
+                    var containerEntry = _containerList[i];
+                    _containerManager.RemoveContainer(containerEntry);
+
+                    if (entityDestroyed)
+                    {
+                        SendInventoryUpdate(containerEntry.Player);
+                    }
+                }
+
+                _containerManager.UnregisterEntity(_entity);
+            }
+        }
+
         private struct ContainerEntry
         {
             public Plugin Plugin;
             public BasePlayer Player;
+            public EntityTracker EntityTracker;
             public ItemContainer Container;
-
-            public void Activate()
-            {
-                Player.inventory.crafting.containers.Add(Container);
-            }
+            public Func<Plugin, BasePlayer, ItemContainer, bool> CanUseContainer;
 
             public void Deactivate()
             {
-                Player.inventory.crafting.containers.Remove(Container);
+                if (EntityTracker != null)
+                {
+                    EntityTracker.RemoveContainer(this);
+                }
+            }
+
+            public bool CanUse()
+            {
+                return CanUseContainer?.Invoke(Plugin, Player, Container) ?? true;
             }
         }
 
         private class ContainerManager
         {
             private Dictionary<ulong, List<ContainerEntry>> _playerContainerEntries = new Dictionary<ulong, List<ContainerEntry>>();
+            private Dictionary<BaseEntity, EntityTracker> _entityTrackers = new Dictionary<BaseEntity, EntityTracker>();
 
-            public bool AddContainer(Plugin plugin, BasePlayer player, ItemContainer container)
+            public void UnregisterEntity(BaseEntity entity)
+            {
+                _entityTrackers.Remove(entity);
+            }
+
+            public bool AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
             {
                 var containerList = GetContainerList(player);
                 if (containerList == null)
@@ -521,10 +704,23 @@ namespace Oxide.Plugins
                     Plugin = plugin,
                     Player = player,
                     Container = container,
+                    CanUseContainer = canUseContainer,
                 };
 
+                var entity = containerEntity as BaseEntity;
+                if ((object)entity != null)
+                {
+                    EntityTracker entityTracker;
+                    if (!_entityTrackers.TryGetValue(entity, out entityTracker))
+                    {
+                        entityTracker = EntityTracker.AddToEntity(entity, this);
+                        _entityTrackers[entity] = entityTracker;
+                    }
+                    containerEntry.EntityTracker = entityTracker;
+                    entityTracker.AddContainer(containerEntry);
+                }
+
                 containerList.Add(containerEntry);
-                containerEntry.Activate();
                 return true;
             }
 
@@ -544,6 +740,11 @@ namespace Oxide.Plugins
                 }
 
                 return anyRemoved;
+            }
+
+            public bool RemoveContainer(ContainerEntry containerEntry)
+            {
+                return RemoveContainer(containerEntry.Plugin, containerEntry.Player, containerEntry.Container);
             }
 
             public bool RemoveContainers(Plugin plugin, BasePlayer player)
