@@ -382,7 +382,10 @@ namespace Oxide.Plugins
 
             if (itemsAdded > 0)
             {
-                containerData.slots = firstAvailableInvisibleSlot + itemsAdded;
+                if (containerData.slots >= 24)
+                {
+                    containerData.slots = firstAvailableInvisibleSlot + itemsAdded;
+                }
             }
         }
 
