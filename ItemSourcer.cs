@@ -9,7 +9,7 @@ using static BaseEntity;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Sourcer", "WhiteThunder", "0.2.0")]
+    [Info("Item Sourcer", "WhiteThunder", "0.2.1")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemSourcer : CovalencePlugin
     {
@@ -479,7 +479,7 @@ namespace Oxide.Plugins
             for (var i = container.itemList.Count - 1; i >= 0; i--)
             {
                 var amountToTake = totalAmountToTake - totalAmountTaken;
-                if (amountToTake < totalAmountToTake)
+                if (amountToTake <= 0)
                     break;
 
                 var item = container.itemList[i];
