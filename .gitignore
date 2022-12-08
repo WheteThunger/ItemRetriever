@@ -356,3 +356,4 @@ MigrationBackup/
 *.csproj
 *.7z
 *.url
+.idea
