@@ -16,19 +16,19 @@ Any plugin which reduces the player inventory space to less than 24 is not compa
 
 ## Permissions
 
-- `itemsourcer.admin` -- Allows using the demonstration commands documented below.
+- `itemretriever.admin` -- Allows using the demonstration commands documented below.
 
 ## Commands
 
-- `source.add` -- Adds the container you are looking at to your registered containers.
-- `source.remove` -- Removes the container you are looking at from your registered containers.
-- `source.backpack.add` -- Adds your backpack to your registered containers.
-- `source.backpack.remove` -- Removes your backpack from your registered containers.
+- `retriever.add` -- Adds the container you are looking at to your registered containers.
+- `retriever.remove` -- Removes the container you are looking at from your registered containers.
+- `retriever.backpack.add` -- Adds your backpack to your registered containers.
+- `retriever.backpack.remove` -- Removes your backpack from your registered containers.
 
 ## How developers should integrate with this plugin
 
 1. When your plugin loads, determine which players should have which containers available to them, and call the `API_AddContainer` to register those containers
-2. When Item Sourcer reloads, run the same logic as step 1
+2. When Item Retriever reloads, run the same logic as step 1
 3. When a player connects/spawns/awakens/etc. and should have containers available to them (such as their backpack container), call `API_AddContainer` to register those containers
 
 If you want to allow other plugins to dynamically disable player access to containers that your plugin provides for players (e.g., you are a backpack plugin, and an event/arena plugin wants to disable backpack access while in the event/arena), then you should do the following.
@@ -51,36 +51,36 @@ Example:
 
 ```cs
 [PluginReference]
-private readonly Plugin ItemSourcer;
+private readonly Plugin ItemRetriever;
 
-private ItemSourcerApi _itemSourcerApi;
+private ItemRetrieverApi _itemRetrieverApi;
 
-// (Hook) When all plugins load, call ItemSourcer to cache its API.
+// (Hook) When all plugins load, call ItemRetriever to cache its API.
 private void OnServerInitialized()
 {
-    if (ItemSourcer != null)
+    if (ItemRetriever != null)
     {
-        CacheItemSourcerApi();
+        CacheItemRetrieverApi();
     }
 }
 
-// (Hook) In case ItemSourcer reloads or loads late, refresh its API.
+// (Hook) In case ItemRetriever reloads or loads late, refresh its API.
 private void OnPluginLoaded(Plugin plugin)
 {
-    if (plugin.Name == nameof(ItemSourcer))
+    if (plugin.Name == nameof(ItemRetriever))
     {
-        CacheItemSourcerApi();
+        CacheItemRetrieverApi();
     }
 }
 
-// (Helper method) Call ItemSourcer via Oxide to get its API.
-private void CacheItemSourcerApi()
+// (Helper method) Call ItemRetriever via Oxide to get its API.
+private void CacheItemRetrieverApi()
 {
-    _itemSourcerApi = new ItemSourcerApi(ItemSourcer.Call("API_GetApi") as Dictionary<string, object>);
+    _itemRetrieverApi = new ItemRetrieverApi(ItemRetriever.Call("API_GetApi") as Dictionary<string, object>);
 }
 
-// (Helper class) This abstraction allows you to call ItemSourcer API methods with low CPU/memory overhead.
-private class ItemSourcerApi
+// (Helper class) This abstraction allows you to call ItemRetriever API methods with low CPU/memory overhead.
+private class ItemRetrieverApi
 {
     // All available API methods are defined here, but you can shorten this list for brevity if you only use select APIs.
     public Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>> AddContainer { get; }
@@ -92,7 +92,7 @@ private class ItemSourcerApi
     public Func<BasePlayer, List<Item>, Func<Item, int>, int, int> TakePlayerItems { get; }
     public Action<BasePlayer, List<Item>, AmmoTypes> FindPlayerAmmo { get; }
 
-    public ItemSourcerApi(Dictionary<string, object> apiDict)
+    public ItemRetrieverApi(Dictionary<string, object> apiDict)
     {
         AddContainer = apiDict[nameof(AddContainer)] as Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>;
         RemoveContainer = apiDict[nameof(RemoveContainer)] as Action<Plugin, BasePlayer, ItemContainer>;
@@ -138,7 +138,7 @@ private static class UsableItemCounter
     }
 }
 
-// (Helper method) When ItemSourcer's API is not available, you'll need a method to find items in the player inventory.
+// (Helper method) When ItemRetriever's API is not available, you'll need a method to find items in the player inventory.
 // If you only need to find items by id (don't need to check skin, blueprint, etc.), then you can use a vanilla method.
 private int SumContainerItems(ItemContainer container, Func<Item, int> getUsableAmount)
 {
@@ -157,8 +157,8 @@ private int GetPlayerEpicScrapAmount(BasePlayer player)
 {
     var getUsableAmount = UsableItemCounter.Get(-932201673, 1234567890);
 
-    // If ItemSourcer is available, call it, else simply find items in the player inventory.
-    return _itemSourcerApi?.SumPlayerItems?.Invoke(player, getUsableAmount)
+    // If ItemRetriever is available, call it, else simply find items in the player inventory.
+    return _itemRetrieverApi?.SumPlayerItems?.Invoke(player, getUsableAmount)
         ?? SumContainerItems(player.inventory.containerMain, getUsableAmount)
             + SumContainerItems(player.inventory.containerBelt, getUsableAmount);
 }
@@ -196,7 +196,7 @@ Removes all containers registered by the specified plugin for the target player.
 void API_RemoveAllContainersForPlugin(Plugin plugin)
 ```
 
-Removes all containers registered by the specified plugin. Note: Plugins **don't** need to call this when they unload because Item Sourcer already watches for plugin unload events in order to automatically unregister their containers.
+Removes all containers registered by the specified plugin. Note: Plugins **don't** need to call this when they unload because Item Retriever already watches for plugin unload events in order to automatically unregister their containers.
 
 #### FindPlayerItems
 

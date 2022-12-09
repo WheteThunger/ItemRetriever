@@ -8,9 +8,9 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Sourcer", "WhiteThunder", "0.2.1")]
+    [Info("Item Retriever", "WhiteThunder", "0.2.1")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
-    internal class ItemSourcer : CovalencePlugin
+    internal class ItemRetriever : CovalencePlugin
     {
         #region Fields
 
@@ -19,7 +19,7 @@ namespace Oxide.Plugins
 
         private const int InventorySize = 24;
 
-        private const string PermissionAdmin = "itemsourcer.admin";
+        private const string PermissionAdmin = "itemretriever.admin";
 
         private static readonly object True = true;
         private static readonly object False = false;
@@ -30,7 +30,7 @@ namespace Oxide.Plugins
 
         private bool _callingCanCraft = false;
 
-        public ItemSourcer()
+        public ItemRetriever()
         {
             _api = new ApiInstance(this);
         }
@@ -136,7 +136,7 @@ namespace Oxide.Plugins
 
         #region Commands
 
-        [Command("source.add"), Permission(PermissionAdmin)]
+        [Command("retriever.add"), Permission(PermissionAdmin)]
         private void CommandAddContainer(IPlayer player, string cmd, string[] args)
         {
             BasePlayer basePlayer;
@@ -162,7 +162,7 @@ namespace Oxide.Plugins
             player.Reply($"Successfully added container.");
         }
 
-        [Command("source.remove"), Permission(PermissionAdmin)]
+        [Command("retriever.remove"), Permission(PermissionAdmin)]
         private void CommandRemoveContainer(IPlayer player, string cmd, string[] args)
         {
             BasePlayer basePlayer;
@@ -188,7 +188,7 @@ namespace Oxide.Plugins
             player.Reply($"Successfully removed container.");
         }
 
-        [Command("source.backpack.add"), Permission(PermissionAdmin)]
+        [Command("retriever.backpack.add"), Permission(PermissionAdmin)]
         private void CommandBackpackAdd(IPlayer player, string cmd, string[] args)
         {
             BasePlayer basePlayer;
@@ -207,7 +207,7 @@ namespace Oxide.Plugins
             player.Reply($"Successfully added Backpack container.");
         }
 
-        [Command("source.backpack.remove"), Permission(PermissionAdmin)]
+        [Command("retriever.backpack.remove"), Permission(PermissionAdmin)]
         private void CommandBackpackRemove(IPlayer player, string cmd, string[] args)
         {
             BasePlayer basePlayer;
@@ -234,10 +234,10 @@ namespace Oxide.Plugins
         {
             public readonly Dictionary<string, object> ApiWrapper;
 
-            private readonly ItemSourcer _plugin;
+            private readonly ItemRetriever _plugin;
             private ContainerManager _containerManager => _plugin._containerManager;
 
-            public ApiInstance(ItemSourcer plugin)
+            public ApiInstance(ItemRetriever plugin)
             {
                 _plugin = plugin;
 
