@@ -451,6 +451,9 @@ namespace Oxide.Plugins
                 // Add external containers.
                 foreach (var containerEntry in containerList)
                 {
+                    if (!containerEntry.CanUse())
+                        continue;
+
                     itemsAdded += AddContainerItemForNetwork(containerData, containerEntry.Container, ref nextInvisibleSlot);
                 }
             }
@@ -493,6 +496,9 @@ namespace Oxide.Plugins
             {
                 foreach (var containerEntry in containerList)
                 {
+                    if (!containerEntry.CanUse())
+                        continue;
+
                     FindContainerItems(containerEntry.Container, collect, getUsableAmount);
                 }
             }
@@ -527,6 +533,9 @@ namespace Oxide.Plugins
             {
                 foreach (var containerEntry in containerList)
                 {
+                    if (!containerEntry.CanUse())
+                        continue;
+
                     sum += SumContainerItems(containerEntry.Container, getUsableAmount);
                 }
             }
@@ -617,6 +626,9 @@ namespace Oxide.Plugins
             {
                 foreach (var containerEntry in containerList)
                 {
+                    if (!containerEntry.CanUse())
+                        continue;
+
                     amountTaken += TakeContainerItems(containerEntry.Container, collect, getUsableAmount, amountToTake - amountTaken);
                     if (amountTaken >= amountToTake)
                         return amountTaken;
@@ -642,6 +654,9 @@ namespace Oxide.Plugins
             {
                 foreach (var containerEntry in containerList)
                 {
+                    if (!containerEntry.CanUse())
+                        continue;
+
                     containerEntry.Container.FindAmmo(collect, ammoType);
                 }
             }
@@ -966,24 +981,6 @@ namespace Oxide.Plugins
                 }
 
                 return false;
-            }
-
-            private bool RemoveEntries(List<ContainerEntry> containerList, Plugin plugin)
-            {
-                var anyRemoved = false;
-
-                for (var i = containerList.Count - 1; i >= 0; i--)
-                {
-                    var containerEntry = containerList[i];
-                    if (containerEntry.Plugin == plugin)
-                    {
-                        containerList.RemoveAt(i);
-                        containerEntry.Deactivate();
-                        anyRemoved = true;
-                    }
-                }
-
-                return anyRemoved;
             }
 
             private bool RemoveEntries(List<ContainerEntry> containerList, BasePlayer player)
