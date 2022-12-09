@@ -5,7 +5,6 @@ using Rust;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using static BaseEntity;
 
 namespace Oxide.Plugins
 {
@@ -22,12 +21,19 @@ namespace Oxide.Plugins
 
         private const string PermissionAdmin = "itemsourcer.admin";
 
-        private object True = true;
-        private object False = false;
+        private static readonly object True = true;
+        private static readonly object False = false;
 
         private ContainerManager _containerManager = new ContainerManager();
+        private readonly ApiInstance _api;
+        private readonly ValueObjectCache<int> _intObjectCache = new ValueObjectCache<int>();
 
         private bool _callingCanCraft = false;
+
+        public ItemSourcer()
+        {
+            _api = new ApiInstance(this);
+        }
 
         #endregion
 
@@ -58,18 +64,18 @@ namespace Oxide.Plugins
 
         private object OnInventoryItemsCount(PlayerInventory inventory, int itemId)
         {
-            return SumPlayerItems(inventory.baseEntity, itemId);
+            return _intObjectCache.Get(SumPlayerItems(inventory.baseEntity, UsableItemCounter.Get(itemId)));
         }
 
         private object OnInventoryItemsTake(PlayerInventory inventory, List<Item> collect, int itemId, int amount)
         {
-            return TakePlayerItems(inventory.baseEntity, collect, itemId, amount);
+            return _intObjectCache.Get(TakePlayerItems(inventory.baseEntity, collect, UsableItemCounter.Get(itemId), amount));
         }
 
         private object OnInventoryItemsFind(PlayerInventory inventory, int itemId)
         {
-            List<Item> list = new List<Item>();
-            FindPlayerItems(inventory.baseEntity, list, itemId);
+            var list = new List<Item>();
+            FindPlayerItems(inventory.baseEntity, list, UsableItemCounter.Get(itemId));
             return list;
         }
 
@@ -84,7 +90,7 @@ namespace Oxide.Plugins
             var collect = new List<Item>();
             foreach (ItemAmount ingredient in blueprint.ingredients)
             {
-                TakePlayerItems(player, collect, ingredient.itemid, (int)ingredient.amount * amount);
+                TakePlayerItems(player, collect, UsableItemCounter.Get(ingredient.itemid), (int)ingredient.amount * amount);
             }
 
             task.potentialOwners = new List<ulong>();
@@ -109,7 +115,7 @@ namespace Oxide.Plugins
 
             _callingCanCraft = true;
 
-            var canCraftResult = Interface.Oxide.CallHook("CanCraft", itemCrafter, blueprint, amount, free);
+            var canCraftResult = Interface.CallHook("CanCraft", itemCrafter, blueprint, _intObjectCache.Get(amount), BooleanNoAlloc(free));
             if (canCraftResult != null)
                 return null;
 
@@ -119,7 +125,7 @@ namespace Oxide.Plugins
 
             foreach (ItemAmount ingredient in blueprint.ingredients)
             {
-                if (SumPlayerItems(basePlayer, ingredient.itemid) < ingredient.amount * amount)
+                if (SumPlayerItems(basePlayer, UsableItemCounter.Get(ingredient.itemid)) < ingredient.amount * amount)
                     return null;
             }
 
@@ -224,79 +230,148 @@ namespace Oxide.Plugins
 
         #region API
 
-        [HookMethod(nameof(API_AddContainer))]
-        public void API_AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
+        private class ApiInstance
         {
-            if (_containerManager.AddContainer(plugin, player, containerEntity, container, canUseContainer))
+            public readonly Dictionary<string, object> ApiWrapper;
+
+            private readonly ItemSourcer _plugin;
+            private ContainerManager _containerManager => _plugin._containerManager;
+
+            public ApiInstance(ItemSourcer plugin)
             {
-                SendInventoryUpdate(player);
+                _plugin = plugin;
+
+                ApiWrapper = new Dictionary<string, object>
+                {
+                    [nameof(AddContainer)] = new Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>>(AddContainer),
+                    [nameof(RemoveContainer)] = new Action<Plugin, BasePlayer, ItemContainer>(RemoveContainer),
+                    [nameof(RemoveAllContainersForPlayer)] = new Action<Plugin, BasePlayer>(RemoveAllContainersForPlayer),
+                    [nameof(RemoveAllContainersForPlugin)] = new Action<Plugin>(RemoveAllContainersForPlugin),
+                    [nameof(FindPlayerItems)] = new Action<BasePlayer, List<Item>, Func<Item, int>>(FindPlayerItems),
+                    [nameof(SumPlayerItems)] = new Func<BasePlayer, Func<Item, int>, int>(SumPlayerItems),
+                    [nameof(TakePlayerItems)] = new Func<BasePlayer, List<Item>, Func<Item, int>, int, int>(TakePlayerItems),
+                    [nameof(FindPlayerAmmo)] = new Action<BasePlayer, List<Item>, AmmoTypes>(FindPlayerAmmo),
+                };
+            }
+
+            public void AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
+            {
+                if (_containerManager.AddContainer(plugin, player, containerEntity, container, canUseContainer))
+                {
+                    SendInventoryUpdate(player);
+                }
+            }
+
+            public void RemoveContainer(Plugin plugin, BasePlayer player, ItemContainer container)
+            {
+                if (_containerManager.RemoveContainer(plugin, player, container))
+                {
+                    SendInventoryUpdate(player);
+                }
+            }
+
+            public void RemoveAllContainersForPlayer(Plugin plugin, BasePlayer player)
+            {
+                if (_containerManager.RemoveContainers(plugin, player))
+                {
+                    SendInventoryUpdate(player);
+                }
+            }
+
+            public void RemoveAllContainersForPlugin(Plugin plugin)
+            {
+                var updatedPlayers = _containerManager.RemoveContainers(plugin);
+                if ((updatedPlayers?.Count ?? 0) > 0)
+                {
+                    foreach (var player in updatedPlayers)
+                    {
+                        SendInventoryUpdate(player);
+                    }
+                }
+            }
+
+            public void FindPlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount)
+            {
+                _plugin.FindPlayerItems(player, collect, getUsableAmount);
+            }
+
+            public int SumPlayerItems(BasePlayer player, Func<Item, int> getUsableAmount)
+            {
+                return _plugin.SumPlayerItems(player, getUsableAmount);
+            }
+
+            public int TakePlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount, int amount)
+            {
+                return _plugin.TakePlayerItems(player, collect, getUsableAmount, amount);
+            }
+
+            public void FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoType)
+            {
+                _plugin.FindPlayerAmmo(player, collect, ammoType);
             }
         }
 
-        [HookMethod(nameof(API_RemoveContainer))]
-        public void API_RemoveContainer(Plugin plugin, BasePlayer player, ItemContainer container)
+        [HookMethod(nameof(API_GetApi))]
+        public Dictionary<string, object> API_GetApi()
         {
-            if (_containerManager.RemoveContainer(plugin, player, container))
-            {
-                SendInventoryUpdate(player);
-            }
+            return _api.ApiWrapper;
+        }
+
+        [HookMethod(nameof(API_AddContainer))]
+        public void API_AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
+        {
+            _api.AddContainer(plugin, player, containerEntity, container, canUseContainer);
+        }
+
+        [HookMethod(nameof(API_RemoveAllContainersForPlayer))]
+        public void API_RemoveAllContainersForPlayer(Plugin plugin, BasePlayer player, ItemContainer container)
+        {
+            _api.RemoveContainer(plugin, player, container);
         }
 
         [HookMethod(nameof(API_RemoveContainers))]
         public void API_RemoveContainers(Plugin plugin, BasePlayer player)
         {
-            if (_containerManager.RemoveContainers(plugin, player))
-            {
-                SendInventoryUpdate(player);
-            }
+            _api.RemoveAllContainersForPlayer(plugin, player);
         }
 
-        [HookMethod(nameof(API_RemoveContainers))]
-        public void API_RemoveContainers(Plugin plugin)
+        [HookMethod(nameof(API_RemoveAllContainersForPlugin))]
+        public void API_RemoveAllContainersForPlugin(Plugin plugin)
         {
-            var updatedPlayers = _containerManager.RemoveContainers(plugin);
-            if ((updatedPlayers?.Count ?? 0) > 0)
-            {
-                foreach (var player in updatedPlayers)
-                {
-                    SendInventoryUpdate(player);
-                }
-            }
+            _api.RemoveAllContainersForPlugin(plugin);
         }
 
-        [HookMethod(nameof(API_FindItems))]
-        public void API_FindItems(BasePlayer player, List<Item> collect, int itemId, ulong skinId = 0)
+        [HookMethod(nameof(API_FindPlayerItems))]
+        public void API_FindPlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount)
         {
-            FindPlayerItems(player, collect, itemId, skinId);
+            _api.FindPlayerItems(player, collect, getUsableAmount);
         }
 
         [HookMethod(nameof(API_SumPlayerItems))]
-        public int API_SumPlayerItems(BasePlayer player, int itemId, ulong skinId = 0)
+        public object API_SumPlayerItems(BasePlayer player, Func<Item, int> getUsableAmount)
         {
-            return SumPlayerItems(player, itemId, skinId);
+            return _intObjectCache.Get(_api.SumPlayerItems(player, getUsableAmount));
         }
 
         [HookMethod(nameof(API_TakePlayerItems))]
-        public int API_TakePlayerItems(BasePlayer player, List<Item> collect, int itemId, int amount, ulong skinId = 0)
+        public object API_TakePlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount, int amount)
         {
-            var amountTaken = TakePlayerItems(player, collect, itemId, amount, skinId);
-            ShowGiveNotice(player, itemId, -amount);
-            return amountTaken;
+            return _intObjectCache.Get(_api.TakePlayerItems(player, collect, getUsableAmount, amount));
         }
 
         [HookMethod(nameof(API_FindPlayerAmmo))]
         public void API_FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoType)
         {
-            FindPlayerAmmo(player, collect, ammoType);
+            _api.FindPlayerAmmo(player, collect, ammoType);
         }
 
         #endregion
 
         #region Helper Methods
 
-        private static void ShowGiveNotice(BasePlayer player, int itemId, int amount, string name = null, GiveItemReason reason = GiveItemReason.Generic)
+        private static object BooleanNoAlloc(bool value)
         {
-            player.Command("note.inv", itemId, amount, name, (int)reason);
+            return value ? True : False;
         }
 
         private static void SendInventoryUpdate(BasePlayer player)
@@ -389,22 +464,12 @@ namespace Oxide.Plugins
             }
         }
 
-        private bool ItemMatches(Item item, int itemId, ulong skinId)
-        {
-            if (item.info.itemid != itemId)
-                return false;
-
-            if (skinId != 0 && item.skin != skinId)
-                return false;
-
-            return true;
-        }
-
-        private void FindContainerItems(ItemContainer container, List<Item> collect, int itemId, ulong skinId = 0)
+        private void FindContainerItems(ItemContainer container, List<Item> collect, Func<Item, int> getUsableAmount)
         {
             foreach (var item in container.itemList)
             {
-                if (ItemMatches(item, itemId, skinId))
+                var usableAmount = getUsableAmount(item);
+                if (usableAmount > 0)
                 {
                     collect.Add(item);
                 }
@@ -412,67 +477,64 @@ namespace Oxide.Plugins
                 ItemContainer childContainer;
                 if (HasSearchableContainer(item, out childContainer))
                 {
-                    FindContainerItems(childContainer, collect, itemId, skinId);
+                    FindContainerItems(childContainer, collect, getUsableAmount);
                 }
             }
         }
 
-        private void FindPlayerItems(BasePlayer player, List<Item> collect, int itemId, ulong skinId = 0)
+        private void FindPlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount)
         {
-            FindContainerItems(player.inventory.containerMain, collect, itemId, skinId);
-            FindContainerItems(player.inventory.containerBelt, collect, itemId, skinId);
-            FindContainerItems(player.inventory.containerWear, collect, itemId, skinId);
+            FindContainerItems(player.inventory.containerMain, collect, getUsableAmount);
+            FindContainerItems(player.inventory.containerBelt, collect, getUsableAmount);
+            FindContainerItems(player.inventory.containerWear, collect, getUsableAmount);
 
             var containerList = _containerManager.GetContainerList(player);
             if (containerList != null)
             {
                 foreach (var containerEntry in containerList)
                 {
-                    FindContainerItems(containerEntry.Container, collect, itemId, skinId);
+                    FindContainerItems(containerEntry.Container, collect, getUsableAmount);
                 }
             }
         }
 
-        private int SumContainerItems(ItemContainer container, int itemId, ulong skinId = 0)
+        private int SumContainerItems(ItemContainer container, Func<Item, int> getUsableAmount)
         {
-            var count = 0;
+            var sum = 0;
 
             foreach (var item in container.itemList)
             {
-                if (ItemMatches(item, itemId, skinId))
-                {
-                    count += item.amount;
-                }
+                sum += getUsableAmount(item);
 
                 ItemContainer childContainer;
                 if (HasSearchableContainer(item, out childContainer))
                 {
-                    count += SumContainerItems(childContainer, itemId, skinId);
-                }
-            }
-
-            return count;
-        }
-
-        private int SumPlayerItems(BasePlayer player, int itemId, ulong skinId = 0)
-        {
-            var sum = SumContainerItems(player.inventory.containerMain, itemId, skinId)
-                + SumContainerItems(player.inventory.containerBelt, itemId, skinId)
-                + SumContainerItems(player.inventory.containerWear, itemId, skinId);
-
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList != null)
-            {
-                foreach (var containerEntry in containerList)
-                {
-                    sum += SumContainerItems(containerEntry.Container, itemId, skinId);
+                    sum += SumContainerItems(childContainer, getUsableAmount);
                 }
             }
 
             return sum;
         }
 
-        private int TakeContainerItems(ItemContainer container, List<Item> collect, int itemId, int totalAmountToTake, ulong skinId = 0)
+        private int SumPlayerItems(BasePlayer player, Func<Item, int> getUsableAmount)
+        {
+            var sum = SumContainerItems(player.inventory.containerMain, getUsableAmount)
+                + SumContainerItems(player.inventory.containerBelt, getUsableAmount)
+                + SumContainerItems(player.inventory.containerWear, getUsableAmount);
+
+            var containerList = _containerManager.GetContainerList(player);
+            if (containerList != null)
+            {
+                foreach (var containerEntry in containerList)
+                {
+                    sum += SumContainerItems(containerEntry.Container, getUsableAmount);
+                }
+            }
+
+            return sum;
+        }
+
+        private int TakeContainerItems(ItemContainer container, List<Item> collect, Func<Item, int> getUsableAmount, int totalAmountToTake)
         {
             var totalAmountTaken = 0;
 
@@ -483,7 +545,8 @@ namespace Oxide.Plugins
                     break;
 
                 var item = container.itemList[i];
-                if (ItemMatches(item, itemId, skinId))
+                var usableAmount = getUsableAmount(item);
+                if (usableAmount > 0)
                 {
                     amountToTake = Math.Min(item.amount, amountToTake);
 
@@ -525,7 +588,7 @@ namespace Oxide.Plugins
                 ItemContainer childContainer;
                 if (HasSearchableContainer(item, out childContainer))
                 {
-                    totalAmountTaken += TakeContainerItems(childContainer, collect, itemId, amountToTake, skinId);
+                    totalAmountTaken += TakeContainerItems(childContainer, collect, getUsableAmount, amountToTake);
                 }
 
                 if (totalAmountTaken >= totalAmountToTake)
@@ -535,17 +598,17 @@ namespace Oxide.Plugins
             return totalAmountTaken;
         }
 
-        private int TakePlayerItems(BasePlayer player, List<Item> collect, int itemId, int amountToTake, ulong skinId = 0)
+        private int TakePlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount, int amountToTake)
         {
-            var amountTaken = TakeContainerItems(player.inventory.containerMain, collect, itemId, amountToTake, skinId);
+            var amountTaken = TakeContainerItems(player.inventory.containerMain, collect, getUsableAmount, amountToTake);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerBelt, collect, itemId, amountToTake - amountTaken, skinId);
+            amountTaken += TakeContainerItems(player.inventory.containerBelt, collect, getUsableAmount, amountToTake - amountTaken);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerWear, collect, itemId, amountToTake - amountTaken, skinId);
+            amountTaken += TakeContainerItems(player.inventory.containerWear, collect, getUsableAmount, amountToTake - amountTaken);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
@@ -554,7 +617,7 @@ namespace Oxide.Plugins
             {
                 foreach (var containerEntry in containerList)
                 {
-                    amountTaken += TakeContainerItems(containerEntry.Container, collect, itemId, amountToTake - amountTaken, skinId);
+                    amountTaken += TakeContainerItems(containerEntry.Container, collect, getUsableAmount, amountToTake - amountTaken);
                     if (amountTaken >= amountToTake)
                         return amountTaken;
                 }
@@ -603,6 +666,49 @@ namespace Oxide.Plugins
 
             // Don't consider vanilla containers searchable (i.e., don't take low grade out of a miner's hat).
             return !HasItemMod<ItemModContainer>(item.info);
+        }
+
+        #endregion
+
+        #region Item Counter
+
+        private static class UsableItemCounter
+        {
+            private static int _itemId;
+
+            private static Func<Item, int> _getUsableAmount = item =>
+            {
+                if (item.info.itemid != _itemId)
+                    return 0;
+
+                return item.amount;
+            };
+
+            public static Func<Item, int> Get(int itemId)
+            {
+                _itemId = itemId;
+                return _getUsableAmount;
+            }
+        }
+
+        #endregion
+
+        #region Value Object Cache
+
+        private class ValueObjectCache<T> where T : struct
+        {
+            private readonly Dictionary<T, object> _cache = new Dictionary<T, object>();
+
+            public object Get(T val)
+            {
+                object cachedObject;
+                if (!_cache.TryGetValue(val, out cachedObject))
+                {
+                    cachedObject = val;
+                    _cache[val] = cachedObject;
+                }
+                return cachedObject;
+            }
         }
 
         #endregion
