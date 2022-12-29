@@ -768,56 +768,64 @@ namespace Oxide.Plugins
         {
             public static ItemQuery FromDict(Dictionary<string, object> dict)
             {
-                return new ItemQuery
+                var itemQuery = new ItemQuery
                 {
                     RawQuery = dict,
-                    BlueprintId = GetOption<int>(dict, "BlueprintId"),
-                    DisplayName = GetOption<string>(dict, "DisplayName"),
-                    DataInt = GetOption<int>(dict, "DataInt"),
-                    Flags = GetOption<int>(dict, "Flags"),
-                    ItemDefinition = GetOption<ItemDefinition>(dict, "ItemDefinition"),
-                    ItemId = GetOption<int>(dict, "ItemId"),
-                    MinCondition = GetOption<float>(dict, "MinCondition"),
-                    RequireEmpty = GetOption<bool>(dict, "RequireEmpty"),
-                    SkinId = GetOption<ulong>(dict, "SkinId"),
                 };
+
+                GetOption(dict, "BlueprintId", out itemQuery.BlueprintId);
+                GetOption(dict, "DisplayName", out itemQuery.DisplayName);
+                GetOption(dict, "DataInt", out itemQuery.DataInt);
+                GetOption(dict, "FlagsContain", out itemQuery.FlagsContain);
+                GetOption(dict, "FlagsEqual", out itemQuery.FlagsEqual);
+                GetOption(dict, "ItemDefinition", out itemQuery.ItemDefinition);
+                GetOption(dict, "ItemId", out itemQuery.ItemId);
+                GetOption(dict, "MinCondition", out itemQuery.MinCondition);
+                GetOption(dict, "RequireEmpty", out itemQuery.RequireEmpty);
+                GetOption(dict, "SkinId", out itemQuery.SkinId);
+
+                return itemQuery;
             }
 
-            private static T GetOption<T>(Dictionary<string, object> dict, string key)
+            private static void GetOption<T>(Dictionary<string, object> dict, string key, out T result)
             {
                 object value;
-                return dict.TryGetValue(key, out value) && value is T
+                result = dict.TryGetValue(key, out value) && value is T
                     ? (T)value
                     : default(T);
             }
 
             public Dictionary<string, object> RawQuery;
-            public int BlueprintId;
-            public int DataInt;
+            public int? BlueprintId;
+            public int? DataInt;
             public string DisplayName;
-            public int Flags;
+            public Item.Flag? FlagsContain;
+            public Item.Flag? FlagsEqual;
             public ItemDefinition ItemDefinition;
-            public int ItemId;
+            public int? ItemId;
             public float MinCondition;
             public bool RequireEmpty;
-            public ulong SkinId;
+            public ulong? SkinId;
 
             public int GetUsableAmount(Item item)
             {
                 var itemId = GetItemId();
-                if (itemId != 0 && itemId != item.info.itemid)
+                if (itemId.HasValue && itemId != item.info.itemid)
                     return 0;
 
-                if (SkinId != 0 && SkinId != item.skin)
+                if (SkinId.HasValue && SkinId != item.skin)
                     return 0;
 
-                if (BlueprintId != 0 && BlueprintId != item.blueprintTarget)
+                if (BlueprintId.HasValue && BlueprintId != item.blueprintTarget)
                     return 0;
 
-                if (DataInt != 0 && DataInt != (item.instanceData?.dataInt ?? 0))
+                if (DataInt.HasValue && DataInt != (item.instanceData?.dataInt ?? 0))
                     return 0;
 
-                if (Flags != 0 && Flags != ((int)item.flags & Flags))
+                if (FlagsContain.HasValue && !item.flags.HasFlag(FlagsContain.Value))
+                    return 0;
+
+                if (FlagsEqual.HasValue && FlagsEqual != item.flags)
                     return 0;
 
                 if (MinCondition > 0 && HasCondition() && (item.conditionNormalized < MinCondition || item.maxConditionNormalized < MinCondition))
@@ -831,7 +839,7 @@ namespace Oxide.Plugins
                     : item.amount;
             }
 
-            private int GetItemId()
+            private int? GetItemId()
             {
                 if (ItemDefinition != null)
                     return ItemDefinition?.itemid ?? ItemId;
@@ -841,9 +849,9 @@ namespace Oxide.Plugins
 
             private ItemDefinition GetItemDefinition()
             {
-                if ((object)ItemDefinition == null)
+                if ((object)ItemDefinition == null && ItemId.HasValue)
                 {
-                    ItemDefinition = ItemManager.FindItemDefinition(ItemId);
+                    ItemDefinition = ItemManager.FindItemDefinition(ItemId.Value);
                 }
 
                 return ItemDefinition;

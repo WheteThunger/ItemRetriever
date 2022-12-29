@@ -226,11 +226,14 @@ The `API_FindPlayerItems`, `API_SumPlayerItems` and `API_TakePlayerItems` APIs a
 - `"BlueprintId"`: `int`
 - `"DisplayName"`: `string`
 - `"DataInt"`: `int`
-- `"Flags"`: `int`
+- `"FlagsContain"`: `Item.Flag`
+- `"FlagsEqual"`: `Item.Flag`
 - `"ItemDefinition"`: `ItemDefinition`
 - `"ItemId"`: `int`
 - `"MinCondition"`: `float`
 - `"RequireEmpty"`: `bool`
 - `"SkinId"`: `ulong`
+
+Caution: Don't supply fields that are not required for a match. For example, if you supply SkinId `0`, then only items with SkinId `0` will be considered a match. 
 
 If none of the fields are provided, all items will be considered a match.
