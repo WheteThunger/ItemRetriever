@@ -33,8 +33,6 @@ In addition to explicit Item Suppliers and Container Suppliers, plugins that sto
 
 - `retriever.add` -- Adds the container you are looking at to your registered containers.
 - `retriever.remove` -- Removes the container you are looking at from your registered containers.
-- `retriever.backpack.add` -- Adds your backpack to your registered containers.
-- `retriever.backpack.remove` -- Removes your backpack from your registered containers.
 
 ## Incompatible plugins
 

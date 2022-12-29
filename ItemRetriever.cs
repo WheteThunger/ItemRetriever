@@ -15,9 +15,6 @@ namespace Oxide.Plugins
     {
         #region Fields
 
-        [PluginReference]
-        private Plugin Backpacks;
-
         private const int InventorySize = 24;
 
         private const string PermissionAdmin = "itemretriever.admin";
@@ -199,44 +196,6 @@ namespace Oxide.Plugins
             _containerManager.RemoveContainer(this, basePlayer, containerEntity.inventory);
             SendInventoryUpdate(basePlayer);
             player.Reply($"Successfully removed container.");
-        }
-
-        [Command("retriever.backpack.add"), Permission(PermissionAdmin)]
-        private void CommandBackpackAdd(IPlayer player, string cmd, string[] args)
-        {
-            BasePlayer basePlayer;
-            if (!VerifyIsPlayer(player, out basePlayer))
-                return;
-
-            var container = Backpacks?.Call("API_GetBackpackContainer", basePlayer.userID) as ItemContainer;
-            if (container == null)
-            {
-                player.Reply($"No Backpack container found.");
-                return;
-            }
-
-            _containerManager.AddContainer(this, basePlayer, container.entityOwner as IItemContainerEntity, container);
-            SendInventoryUpdate(basePlayer);
-            player.Reply($"Successfully added Backpack container.");
-        }
-
-        [Command("retriever.backpack.remove"), Permission(PermissionAdmin)]
-        private void CommandBackpackRemove(IPlayer player, string cmd, string[] args)
-        {
-            BasePlayer basePlayer;
-            if (!VerifyIsPlayer(player, out basePlayer))
-                return;
-
-            var container = Backpacks?.Call("API_GetBackpackContainer", basePlayer.userID) as ItemContainer;
-            if (container == null)
-            {
-                player.Reply($"No Backpack container found.");
-                return;
-            }
-
-            _containerManager.RemoveContainer(this, basePlayer, container);
-            SendInventoryUpdate(basePlayer);
-            player.Reply($"Successfully removed Backpack container.");
         }
 
         #endregion
