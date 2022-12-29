@@ -88,10 +88,10 @@ private class ItemRetrieverApi
     public Action<Plugin, BasePlayer, ItemContainer> RemoveContainer { get; }
     public Action<Plugin, BasePlayer> RemoveAllContainersForPlayer { get; }
     public Action<Plugin> RemoveAllContainersForPlugin { get; }
-    public Action<BasePlayer, List<Item>, Dictionary<string, object>> FindPlayerItems { get; }
+    public Action<BasePlayer, Dictionary<string, object>, List<Item>> FindPlayerItems { get; }
     public Func<BasePlayer, Dictionary<string, object>, int> SumPlayerItems { get; }
-    public Func<BasePlayer, List<Item>, Dictionary<string, object>, int, int> TakePlayerItems { get; }
-    public Action<BasePlayer, List<Item>, AmmoTypes> FindPlayerAmmo { get; }
+    public Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int> TakePlayerItems { get; }
+    public Action<BasePlayer, AmmoTypes, List<Item>> FindPlayerAmmo { get; }
 
     public ItemRetrieverApi(Dictionary<string, object> apiDict)
     {
@@ -99,10 +99,10 @@ private class ItemRetrieverApi
         RemoveContainer = apiDict[nameof(RemoveContainer)] as Action<Plugin, BasePlayer, ItemContainer>;
         RemoveAllContainersForPlayer = apiDict[nameof(RemoveAllContainersForPlayer)] as Action<Plugin, BasePlayer>;
         RemoveAllContainersForPlugin = apiDict[nameof(RemoveAllContainersForPlugin)] as Action<Plugin>;
-        FindPlayerItems = apiDict[nameof(FindPlayerItems)] as Action<BasePlayer, List<Item>, Dictionary<string, object>>;
+        FindPlayerItems = apiDict[nameof(FindPlayerItems)] as Action<BasePlayer, Dictionary<string, object>, List<Item>>;
         SumPlayerItems = apiDict[nameof(SumPlayerItems)] as Func<BasePlayer, Dictionary<string, object>, int>;
-        TakePlayerItems = apiDict[nameof(TakePlayerItems)] as Func<BasePlayer, List<Item>, Dictionary<string, object>, int, int>;
-        FindPlayerAmmo = apiDict[nameof(FindPlayerAmmo)] as Action<BasePlayer, List<Item>, AmmoTypes>;
+        TakePlayerItems = apiDict[nameof(TakePlayerItems)] as Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int>;
+        FindPlayerAmmo = apiDict[nameof(FindPlayerAmmo)] as Action<BasePlayer, AmmoTypes, List<Item>>;
     }
 }
 
@@ -135,8 +135,14 @@ private Dictionary<string, object> SetupItemQuery(int itemId, ulong skinId = 0)
         _itemQuery = new Dictionary<string, object>();
     }
 
+    _itemQuery.Clear();
     _itemQuery["ItemId"] = itemId;
-    _itemQuery["SkinId"] = skinId;
+
+    if (skinId != 0)
+    {
+        _itemQuery["SkinId"] = skinId;
+    }
+
     return _itemQuery;
 }
 
@@ -190,7 +196,7 @@ Removes all containers registered by the specified plugin. Note: Plugins **don't
 #### API_FindPlayerItems
 
 ```cs
-void API_FindPlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQuery)
+void API_FindPlayerItems(BasePlayer player, Dictionary<string, object> itemQuery, List<Item> collect)
 ```
 
 Searches the player inventory and extra containers, adding all items to the `collect` list for which the `itemQuery` matches.
@@ -206,7 +212,7 @@ Searches the player inventory and extra containers, returning the sum of all ite
 #### API_TakePlayerItems
 
 ```cs
-int API_TakePlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQuery, int amount)
+int API_TakePlayerItems(BasePlayer player, Dictionary<string, object> itemQuery, int amount, List<Item> collect)
 ```
 
 Searches the player inventory and extra containers, taking `amount` of items for which the `itemQuery` matches, optionally adding those items to the `collect` list if non-null. 
@@ -214,7 +220,7 @@ Searches the player inventory and extra containers, taking `amount` of items for
 #### API_FindPlayerAmmo
 
 ```cs
-void API_FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoType)
+void API_FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
 ```
 
 Searches the player inventory and extra containers, adding all items to the `collect` list that match the specified `ammoType`.

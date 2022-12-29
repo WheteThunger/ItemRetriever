@@ -72,20 +72,20 @@ namespace Oxide.Plugins
         private object OnInventoryItemsTake(PlayerInventory inventory, List<Item> collect, int itemId, int amount)
         {
             var itemQuery = new ItemIdQuery(itemId);
-            return ObjectCache.Get(TakePlayerItems(inventory.baseEntity, collect, ref itemQuery, amount));
+            return ObjectCache.Get(TakePlayerItems(inventory.baseEntity, ref itemQuery, amount, collect));
         }
 
         private object OnInventoryItemsFind(PlayerInventory inventory, int itemId)
         {
             var itemQuery = new ItemIdQuery(itemId);
             var list = new List<Item>();
-            FindPlayerItems(inventory.baseEntity, list, ref itemQuery);
+            FindPlayerItems(inventory.baseEntity, ref itemQuery, list);
             return list;
         }
 
         private object OnInventoryAmmoFind(PlayerInventory inventory, List<Item> collect, AmmoTypes ammoType)
         {
-            FindPlayerAmmo(inventory.baseEntity, collect, ammoType);
+            FindPlayerAmmo(inventory.baseEntity, ammoType, collect);
             return False;
         }
 
@@ -95,7 +95,7 @@ namespace Oxide.Plugins
             foreach (ItemAmount ingredient in blueprint.ingredients)
             {
                 var itemQuery = new ItemIdQuery(ingredient.itemid);
-                TakePlayerItems(player, collect, ref itemQuery, (int)ingredient.amount * amount);
+                TakePlayerItems(player, ref itemQuery, (int)ingredient.amount * amount, collect);
             }
 
             task.potentialOwners = new List<ulong>();
@@ -253,10 +253,10 @@ namespace Oxide.Plugins
                     [nameof(RemoveContainer)] = new Action<Plugin, BasePlayer, ItemContainer>(RemoveContainer),
                     [nameof(RemoveAllContainersForPlayer)] = new Action<Plugin, BasePlayer>(RemoveAllContainersForPlayer),
                     [nameof(RemoveAllContainersForPlugin)] = new Action<Plugin>(RemoveAllContainersForPlugin),
-                    [nameof(FindPlayerItems)] = new Action<BasePlayer, List<Item>, Dictionary<string, object>>(FindPlayerItems),
+                    [nameof(FindPlayerItems)] = new Action<BasePlayer, Dictionary<string, object>, List<Item>>(FindPlayerItems),
                     [nameof(SumPlayerItems)] = new Func<BasePlayer, Dictionary<string, object>, int>(SumPlayerItems),
-                    [nameof(TakePlayerItems)] = new Func<BasePlayer, List<Item>, Dictionary<string, object>, int, int>(TakePlayerItems),
-                    [nameof(FindPlayerAmmo)] = new Action<BasePlayer, List<Item>, AmmoTypes>(FindPlayerAmmo),
+                    [nameof(TakePlayerItems)] = new Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int>(TakePlayerItems),
+                    [nameof(FindPlayerAmmo)] = new Action<BasePlayer, AmmoTypes, List<Item>>(FindPlayerAmmo),
                 };
             }
 
@@ -296,10 +296,10 @@ namespace Oxide.Plugins
                 }
             }
 
-            public void FindPlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQueryDict)
+            public void FindPlayerItems(BasePlayer player, Dictionary<string, object> itemQueryDict, List<Item> collect)
             {
                 var itemQuery = ItemQuery.FromDict(itemQueryDict);
-                _plugin.FindPlayerItems(player, collect, ref itemQuery);
+                _plugin.FindPlayerItems(player, ref itemQuery, collect);
             }
 
             public int SumPlayerItems(BasePlayer player, Dictionary<string, object> itemQueryDict)
@@ -308,15 +308,15 @@ namespace Oxide.Plugins
                 return _plugin.SumPlayerItems(player, ref itemQuery);
             }
 
-            public int TakePlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQueryDict, int amount)
+            public int TakePlayerItems(BasePlayer player, Dictionary<string, object> itemQueryDict, int amount, List<Item> collect)
             {
                 var itemQuery = ItemQuery.FromDict(itemQueryDict);
-                return _plugin.TakePlayerItems(player, collect, ref itemQuery, amount);
+                return _plugin.TakePlayerItems(player, ref itemQuery, amount, collect);
             }
 
-            public void FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoType)
+            public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
             {
-                _plugin.FindPlayerAmmo(player, collect, ammoType);
+                _plugin.FindPlayerAmmo(player, ammoType, collect);
             }
         }
 
@@ -351,9 +351,9 @@ namespace Oxide.Plugins
         }
 
         [HookMethod(nameof(API_FindPlayerItems))]
-        public void API_FindPlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQuery)
+        public void API_FindPlayerItems(BasePlayer player, Dictionary<string, object> itemQuery, List<Item> collect)
         {
-            _api.FindPlayerItems(player, collect, itemQuery);
+            _api.FindPlayerItems(player, itemQuery, collect);
         }
 
         [HookMethod(nameof(API_SumPlayerItems))]
@@ -363,15 +363,15 @@ namespace Oxide.Plugins
         }
 
         [HookMethod(nameof(API_TakePlayerItems))]
-        public object API_TakePlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQuery, int amount)
+        public object API_TakePlayerItems(BasePlayer player, Dictionary<string, object> itemQuery, int amount, List<Item> collect)
         {
-            return ObjectCache.Get(_api.TakePlayerItems(player, collect, itemQuery, amount));
+            return ObjectCache.Get(_api.TakePlayerItems(player, itemQuery, amount, collect));
         }
 
         [HookMethod(nameof(API_FindPlayerAmmo))]
-        public void API_FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoType)
+        public void API_FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
         {
-            _api.FindPlayerAmmo(player, collect, ammoType);
+            _api.FindPlayerAmmo(player, ammoType, collect);
         }
 
         #endregion
@@ -476,7 +476,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private void FindContainerItems<T>(ItemContainer container, List<Item> collect, ref T itemQuery, bool childItemsOnly = false) where T : IItemQuery
+        private void FindContainerItems<T>(ItemContainer container, ref T itemQuery, List<Item> collect, bool childItemsOnly = false) where T : IItemQuery
         {
             foreach (var item in container.itemList)
             {
@@ -489,16 +489,16 @@ namespace Oxide.Plugins
                 ItemContainer childContainer;
                 if (HasSearchableContainer(item, out childContainer))
                 {
-                    FindContainerItems(childContainer, collect, ref itemQuery);
+                    FindContainerItems(childContainer, ref itemQuery, collect);
                 }
             }
         }
 
-        private void FindPlayerItems<T>(BasePlayer player, List<Item> collect, ref T itemQuery) where T : IItemQuery
+        private void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
         {
-            FindContainerItems(player.inventory.containerMain, collect, ref itemQuery);
-            FindContainerItems(player.inventory.containerBelt, collect, ref itemQuery);
-            FindContainerItems(player.inventory.containerWear, collect, ref itemQuery, childItemsOnly: true);
+            FindContainerItems(player.inventory.containerMain, ref itemQuery, collect);
+            FindContainerItems(player.inventory.containerBelt, ref itemQuery, collect);
+            FindContainerItems(player.inventory.containerWear, ref itemQuery, collect, childItemsOnly: true);
 
             var containerList = _containerManager.GetContainerList(player);
             if (containerList != null)
@@ -508,7 +508,7 @@ namespace Oxide.Plugins
                     if (!containerEntry.CanUse())
                         continue;
 
-                    FindContainerItems(containerEntry.Container, collect, ref itemQuery);
+                    FindContainerItems(containerEntry.Container, ref itemQuery, collect);
                 }
             }
         }
@@ -552,7 +552,7 @@ namespace Oxide.Plugins
             return sum;
         }
 
-        private int TakeContainerItems<T>(ItemContainer container, List<Item> collect, ref T itemQuery, int totalAmountToTake, bool childItemsOnly = false) where T : IItemQuery
+        private int TakeContainerItems<T>(ItemContainer container, ref T itemQuery, int totalAmountToTake, List<Item> collect, bool childItemsOnly = false) where T : IItemQuery
         {
             var totalAmountTaken = 0;
 
@@ -606,7 +606,7 @@ namespace Oxide.Plugins
                 ItemContainer childContainer;
                 if (HasSearchableContainer(item, out childContainer))
                 {
-                    totalAmountTaken += TakeContainerItems(childContainer, collect, ref itemQuery, amountToTake);
+                    totalAmountTaken += TakeContainerItems(childContainer, ref itemQuery, amountToTake, collect);
                 }
 
                 if (totalAmountTaken >= totalAmountToTake)
@@ -616,17 +616,17 @@ namespace Oxide.Plugins
             return totalAmountTaken;
         }
 
-        private int TakePlayerItems<T>(BasePlayer player, List<Item> collect, ref T itemQuery, int amountToTake) where T : IItemQuery
+        private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
         {
-            var amountTaken = TakeContainerItems(player.inventory.containerMain, collect, ref itemQuery, amountToTake);
+            var amountTaken = TakeContainerItems(player.inventory.containerMain, ref itemQuery, amountToTake, collect);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerBelt, collect, ref itemQuery, amountToTake - amountTaken);
+            amountTaken += TakeContainerItems(player.inventory.containerBelt, ref itemQuery, amountToTake - amountTaken, collect);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerWear, collect, ref itemQuery, amountToTake - amountTaken, childItemsOnly: true);
+            amountTaken += TakeContainerItems(player.inventory.containerWear, ref itemQuery, amountToTake - amountTaken, collect, childItemsOnly: true);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
@@ -638,7 +638,7 @@ namespace Oxide.Plugins
                     if (!containerEntry.CanUse())
                         continue;
 
-                    amountTaken += TakeContainerItems(containerEntry.Container, collect, ref itemQuery, amountToTake - amountTaken);
+                    amountTaken += TakeContainerItems(containerEntry.Container, ref itemQuery, amountToTake - amountTaken, collect);
                     if (amountTaken >= amountToTake)
                         return amountTaken;
                 }
@@ -647,7 +647,7 @@ namespace Oxide.Plugins
             return amountTaken;
         }
 
-        private void FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoType)
+        private void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
         {
             if (player.inventory.containerMain != null)
             {
