@@ -456,7 +456,11 @@ namespace Oxide.Plugins
 
         private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
         {
-            var amountTaken = ItemUtils.TakeItems(player.inventory.containerMain.itemList, ref itemQuery, amountToTake, collect);
+            var amountTaken = _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake, collect, beforeInventory: true);
+            if (amountTaken >= amountToTake)
+                return amountTaken;
+
+            amountTaken += ItemUtils.TakeItems(player.inventory.containerMain.itemList, ref itemQuery, amountToTake - amountTaken, collect);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
@@ -911,11 +915,9 @@ namespace Oxide.Plugins
         {
             public static ItemSupplier FromSpec(Plugin plugin, Dictionary<string, object> spec)
             {
-                var supplier = new ItemSupplier
-                {
-                    Plugin = plugin,
-                };
+                var supplier = new ItemSupplier { Plugin = plugin };
 
+                GetOption(spec, "Priority", out supplier.Priority);
                 GetOption(spec, "FindPlayerItems", out supplier.FindPlayerItems);
                 GetOption(spec, "SumPlayerItems", out supplier.SumPlayerItems);
                 GetOption(spec, "TakePlayerItems", out supplier.TakePlayerItems);
@@ -934,6 +936,7 @@ namespace Oxide.Plugins
             }
 
             public Plugin Plugin { get; private set; }
+            public int Priority;
             public Action<BasePlayer, Dictionary<string, object>, List<Item>> FindPlayerItems;
             public Func<BasePlayer, Dictionary<string, object>, int> SumPlayerItems;
             public Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int> TakePlayerItems;
@@ -943,8 +946,35 @@ namespace Oxide.Plugins
 
         private class SupplierManager
         {
+            private static void RemoveSupplier(List<ItemSupplier> supplierList, Plugin plugin)
+            {
+                for (var i = 0; i < supplierList.Count; i++)
+                {
+                    var supplier = supplierList[i];
+                    if (supplier.Plugin.Name != plugin.Name)
+                        continue;
+
+                    supplierList.RemoveAt(i);
+                    return;
+                }
+            }
+
+            private static void SortSupplierList(List<ItemSupplier> supplierList)
+            {
+                supplierList.Sort((a, b) =>
+                {
+                    var priorityOrder = a.Priority.CompareTo(b.Priority);
+                    if (priorityOrder != 0)
+                        return priorityOrder;
+
+                    return string.Compare(a.Plugin.Name, b.Plugin.Name, StringComparison.OrdinalIgnoreCase);
+                });
+            }
+
             // Use a list with standard for loops for high performance.
-            private List<ItemSupplier> _suppliers = new List<ItemSupplier>();
+            private List<ItemSupplier> _allSuppliers = new List<ItemSupplier>();
+            private List<ItemSupplier> _beforeInventorySuppliers = new List<ItemSupplier>();
+            private List<ItemSupplier> _afterInventorySuppliers = new List<ItemSupplier>();
 
             private List<ProtoBuf.Item> _reusableItemListForNetwork = new List<ProtoBuf.Item>(32);
             private Dictionary<string, object> _reusableItemQuery = new Dictionary<string, object>();
@@ -952,32 +982,39 @@ namespace Oxide.Plugins
             public void AddSupplier(Plugin plugin, Dictionary<string, object> spec)
             {
                 RemoveSupplier(plugin);
-                _suppliers.Add(ItemSupplier.FromSpec(plugin, spec));
+                var supplier = ItemSupplier.FromSpec(plugin, spec);
+
+                _allSuppliers.Add(supplier);
+
+                if (supplier.Priority < 0)
+                {
+                    _beforeInventorySuppliers.Add(supplier);
+                    SortSupplierList(_beforeInventorySuppliers);
+                }
+                else
+                {
+                    _afterInventorySuppliers.Add(supplier);
+                    SortSupplierList(_afterInventorySuppliers);
+                }
             }
 
             public void RemoveSupplier(Plugin plugin)
             {
-                for (var i = 0; i < _suppliers.Count; i++)
-                {
-                    var supplier = _suppliers[i];
-                    if (supplier.Plugin.Name != plugin.Name)
-                        continue;
-
-                    _suppliers.RemoveAt(i);
-                    return;
-                }
+                RemoveSupplier(_allSuppliers, plugin);
+                RemoveSupplier(_beforeInventorySuppliers, plugin);
+                RemoveSupplier(_afterInventorySuppliers, plugin);
             }
 
             public int SerializeForNetwork(BasePlayer player, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
             {
-                if (_suppliers.Count == 0)
+                if (_allSuppliers.Count == 0)
                     return 0;
 
                 _reusableItemListForNetwork.Clear();
 
-                for (var i = 0; i < _suppliers.Count; i++)
+                for (var i = 0; i < _allSuppliers.Count; i++)
                 {
-                    _suppliers[i].SerializeForNetwork?.Invoke(player, _reusableItemListForNetwork);
+                    _allSuppliers[i].SerializeForNetwork?.Invoke(player, _reusableItemListForNetwork);
                 }
 
                 var itemsAdded = ItemUtils.SerializeForNetwork(_reusableItemListForNetwork, containerData, ref nextInvisibleSlot);
@@ -989,46 +1026,47 @@ namespace Oxide.Plugins
 
             public void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
             {
-                if (_suppliers.Count == 0)
+                if (_allSuppliers.Count == 0)
                     return;
 
                 itemQuery.PopulateItemQuery(_reusableItemQuery);
 
-                for (var i = 0; i < _suppliers.Count; i++)
+                for (var i = 0; i < _allSuppliers.Count; i++)
                 {
-                    _suppliers[i].FindPlayerItems?.Invoke(player, _reusableItemQuery, collect);
+                    _allSuppliers[i].FindPlayerItems?.Invoke(player, _reusableItemQuery, collect);
                 }
             }
 
             public int SumPlayerItems<T>(BasePlayer player, ref T itemQuery) where T : IItemQuery
             {
-                if (_suppliers.Count == 0)
+                if (_allSuppliers.Count == 0)
                     return 0;
 
                 itemQuery.PopulateItemQuery(_reusableItemQuery);
 
                 var sum = 0;
 
-                for (var i = 0; i < _suppliers.Count; i++)
+                for (var i = 0; i < _allSuppliers.Count; i++)
                 {
-                    sum += _suppliers[i].SumPlayerItems?.Invoke(player, _reusableItemQuery) ?? 0;
+                    sum += _allSuppliers[i].SumPlayerItems?.Invoke(player, _reusableItemQuery) ?? 0;
                 }
 
                 return sum;
             }
 
-            public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
+            public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, bool beforeInventory = false) where T : IItemQuery
             {
-                if (_suppliers.Count == 0)
+                var suppliers = beforeInventory ? _beforeInventorySuppliers : _afterInventorySuppliers;
+                if (suppliers.Count == 0)
                     return 0;
 
                 itemQuery.PopulateItemQuery(_reusableItemQuery);
 
                 var amountTaken = 0;
 
-                for (var i = 0; i < _suppliers.Count; i++)
+                for (var i = 0; i < suppliers.Count; i++)
                 {
-                    amountToTake += _suppliers[i].TakePlayerItems?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect) ?? 0;
+                    amountTaken += suppliers[i].TakePlayerItems?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect) ?? 0;
 
                     if (amountTaken >= amountToTake)
                         return amountTaken;
@@ -1037,11 +1075,11 @@ namespace Oxide.Plugins
                 return amountTaken;
             }
 
-            public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
+            public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect, bool beforeInventory = false)
             {
-                for (var i = 0; i < _suppliers.Count; i++)
+                for (var i = 0; i < _allSuppliers.Count; i++)
                 {
-                    _suppliers[i].FindPlayerAmmo?.Invoke(player, ammoType, collect);
+                    _allSuppliers[i].FindPlayerAmmo?.Invoke(player, ammoType, collect);
                 }
             }
         }
