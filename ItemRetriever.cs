@@ -25,6 +25,7 @@ namespace Oxide.Plugins
         private static readonly object True = true;
         private static readonly object False = false;
 
+        private SupplierManager _supplierManager = new SupplierManager();
         private ContainerManager _containerManager = new ContainerManager();
         private readonly ApiInstance _api;
 
@@ -43,16 +44,20 @@ namespace Oxide.Plugins
         {
             _containerManager.RemoveContainers();
             ObjectCache.Clear<int>();
+            ObjectCache.Clear<float>();
+            ObjectCache.Clear<ulong>();
+            ObjectCache.Clear<Item.Flag>();
         }
 
         private void OnPluginUnloaded(Plugin plugin)
         {
+            _supplierManager.RemoveSupplier(plugin);
             _containerManager.RemoveContainers(plugin);
         }
 
         private void OnEntitySaved(BasePlayer player, BaseNetworkable.SaveInfo saveInfo)
         {
-            AddItemsForNetwork(saveInfo.msg.basePlayer.inventory.invMain, player);
+            SerializeForNetwork(player, saveInfo.msg.basePlayer.inventory.invMain);
         }
 
         private void OnInventoryNetworkUpdate(PlayerInventory inventory, ItemContainer container, ProtoBuf.UpdateItemContainer updatedItemContainer, PlayerInventory.Type inventoryType)
@@ -60,7 +65,7 @@ namespace Oxide.Plugins
             if (inventoryType != PlayerInventory.Type.Main)
                 return;
 
-            AddItemsForNetwork(updatedItemContainer.container[0], inventory.baseEntity);
+            SerializeForNetwork(inventory.baseEntity, updatedItemContainer.container[0]);
         }
 
         private object OnInventoryItemsCount(PlayerInventory inventory, int itemId)
@@ -92,17 +97,18 @@ namespace Oxide.Plugins
         private object OnIngredientsCollect(ItemCrafter itemCrafter, ItemBlueprint blueprint, ItemCraftTask task, int amount, BasePlayer player)
         {
             var collect = new List<Item>();
-            foreach (ItemAmount ingredient in blueprint.ingredients)
+            for (var i = 0; i < blueprint.ingredients.Count; i++)
             {
+                var ingredient = blueprint.ingredients[i];
                 var itemQuery = new ItemIdQuery(ingredient.itemid);
                 TakePlayerItems(player, ref itemQuery, (int)ingredient.amount * amount, collect);
             }
 
             task.potentialOwners = new List<ulong>();
 
-            foreach (Item item in collect)
+            for (var i = 0; i < collect.Count; i++)
             {
-                item.CollectedForCrafting(player);
+                collect[i].CollectedForCrafting(player);
                 if (!task.potentialOwners.Contains(player.userID))
                 {
                     task.potentialOwners.Add(player.userID);
@@ -128,8 +134,9 @@ namespace Oxide.Plugins
 
             var basePlayer = itemCrafter.baseEntity;
 
-            foreach (ItemAmount ingredient in blueprint.ingredients)
+            for (var i = 0; i < blueprint.ingredients.Count; i++)
             {
+                var ingredient = blueprint.ingredients[i];
                 var itemQuery = new ItemIdQuery(ingredient.itemid);
                 if (SumPlayerItems(basePlayer, ref itemQuery) < ingredient.amount * amount)
                     return null;
@@ -241,6 +248,7 @@ namespace Oxide.Plugins
             public readonly Dictionary<string, object> ApiWrapper;
 
             private readonly ItemRetriever _plugin;
+            private SupplierManager _supplierManager => _plugin._supplierManager;
             private ContainerManager _containerManager => _plugin._containerManager;
 
             public ApiInstance(ItemRetriever plugin)
@@ -249,6 +257,8 @@ namespace Oxide.Plugins
 
                 ApiWrapper = new Dictionary<string, object>
                 {
+                    [nameof(AddSupplier)] = new Action<Plugin, Dictionary<string, object>>(AddSupplier),
+                    [nameof(RemoveSupplier)] = new Action<Plugin>(RemoveSupplier),
                     [nameof(AddContainer)] = new Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>>(AddContainer),
                     [nameof(RemoveContainer)] = new Action<Plugin, BasePlayer, ItemContainer>(RemoveContainer),
                     [nameof(RemoveAllContainersForPlayer)] = new Action<Plugin, BasePlayer>(RemoveAllContainersForPlayer),
@@ -258,6 +268,22 @@ namespace Oxide.Plugins
                     [nameof(TakePlayerItems)] = new Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int>(TakePlayerItems),
                     [nameof(FindPlayerAmmo)] = new Action<BasePlayer, AmmoTypes, List<Item>>(FindPlayerAmmo),
                 };
+            }
+
+            public void AddSupplier(Plugin plugin, Dictionary<string, object> spec)
+            {
+                if (plugin == null)
+                    throw new ArgumentNullException(nameof(plugin));
+
+                _supplierManager.AddSupplier(plugin, spec);
+            }
+
+            public void RemoveSupplier(Plugin plugin)
+            {
+                if (plugin == null)
+                    throw new ArgumentNullException(nameof(plugin));
+
+                _supplierManager.RemoveSupplier(plugin);
             }
 
             public void AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
@@ -298,19 +324,19 @@ namespace Oxide.Plugins
 
             public void FindPlayerItems(BasePlayer player, Dictionary<string, object> itemQueryDict, List<Item> collect)
             {
-                var itemQuery = ItemQuery.FromDict(itemQueryDict);
+                var itemQuery = ItemQuery.Parse(itemQueryDict);
                 _plugin.FindPlayerItems(player, ref itemQuery, collect);
             }
 
             public int SumPlayerItems(BasePlayer player, Dictionary<string, object> itemQueryDict)
             {
-                var itemQuery = ItemQuery.FromDict(itemQueryDict);
+                var itemQuery = ItemQuery.Parse(itemQueryDict);
                 return _plugin.SumPlayerItems(player, ref itemQuery);
             }
 
             public int TakePlayerItems(BasePlayer player, Dictionary<string, object> itemQueryDict, int amount, List<Item> collect)
             {
-                var itemQuery = ItemQuery.FromDict(itemQueryDict);
+                var itemQuery = ItemQuery.Parse(itemQueryDict);
                 return _plugin.TakePlayerItems(player, ref itemQuery, amount, collect);
             }
 
@@ -324,6 +350,18 @@ namespace Oxide.Plugins
         public Dictionary<string, object> API_GetApi()
         {
             return _api.ApiWrapper;
+        }
+
+        [HookMethod(nameof(API_AddSupplier))]
+        public void API_AddSupplier(Plugin plugin, Dictionary<string, object> spec)
+        {
+            _api.AddSupplier(plugin, spec);
+        }
+
+        [HookMethod(nameof(API_RemoveSupplier))]
+        public void API_RemoveSupplier(Plugin plugin)
+        {
+            _api.RemoveSupplier(plugin);
         }
 
         [HookMethod(nameof(API_AddContainer))]
@@ -388,7 +426,7 @@ namespace Oxide.Plugins
             player.inventory.SendUpdatedInventory(PlayerInventory.Type.Main, player.inventory.containerMain);
         }
 
-        private bool VerifyIsPlayer(IPlayer player, out BasePlayer basePlayer)
+        private static bool VerifyIsPlayer(IPlayer player, out BasePlayer basePlayer)
         {
             if (player.IsServer)
             {
@@ -400,12 +438,13 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private int GetHighestUsedSlot(ProtoBuf.ItemContainer containerData)
+        private static int GetHighestUsedSlot(ProtoBuf.ItemContainer containerData)
         {
             var highestUsedSlot = -1;
 
-            foreach (var item in containerData.contents)
+            for (var i = 0; i < containerData.contents.Count; i++)
             {
+                var item = containerData.contents[i];
                 if (item.slot > highestUsedSlot)
                 {
                     highestUsedSlot = item.slot;
@@ -415,57 +454,19 @@ namespace Oxide.Plugins
             return highestUsedSlot;
         }
 
-        private int AddContainerItemForNetwork(ProtoBuf.ItemContainer containerData, ItemContainer container, ref int nextInvisibleSlot, bool addChildContainersOnly = false)
-        {
-            var itemsAdded = 0;
-
-            foreach (var item in container.itemList)
-            {
-                if (!addChildContainersOnly)
-                {
-                    var itemData = item.Save();
-                    itemData.slot = nextInvisibleSlot++;
-
-                    containerData.contents.Add(itemData);
-                    itemsAdded++;
-                }
-
-                ItemContainer childContainer;
-                if (HasSearchableContainer(item, out childContainer))
-                {
-                    itemsAdded += AddContainerItemForNetwork(containerData, childContainer, ref nextInvisibleSlot);
-                }
-            }
-
-            return itemsAdded;
-        }
-
-        private void AddItemsForNetwork(ProtoBuf.ItemContainer containerData, BasePlayer player)
+        private void SerializeForNetwork(BasePlayer player, ProtoBuf.ItemContainer containerData)
         {
             if (containerData == null)
                 return;
 
             var firstAvailableInvisibleSlot = Math.Max(InventorySize, GetHighestUsedSlot(containerData) + 1);
             var nextInvisibleSlot = firstAvailableInvisibleSlot;
-            var itemsAdded = 0;
 
-            // Add child containers.
-            itemsAdded += AddContainerItemForNetwork(containerData, player.inventory.containerMain, ref nextInvisibleSlot, addChildContainersOnly: true);
-            itemsAdded += AddContainerItemForNetwork(containerData, player.inventory.containerBelt, ref nextInvisibleSlot, addChildContainersOnly: true);
-            itemsAdded += AddContainerItemForNetwork(containerData, player.inventory.containerWear, ref nextInvisibleSlot, addChildContainersOnly: true);
-
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList != null)
-            {
-                // Add external containers.
-                foreach (var containerEntry in containerList)
-                {
-                    if (!containerEntry.CanUse())
-                        continue;
-
-                    itemsAdded += AddContainerItemForNetwork(containerData, containerEntry.Container, ref nextInvisibleSlot);
-                }
-            }
+            var itemsAdded = ItemUtils.SerializeForNetwork(player.inventory.containerMain.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + ItemUtils.SerializeForNetwork(player.inventory.containerBelt.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + ItemUtils.SerializeForNetwork(player.inventory.containerWear.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + _supplierManager.SerializeForNetwork(player, containerData, ref nextInvisibleSlot)
+                + _containerManager.SerializeForNetwork(player, containerData, ref nextInvisibleSlot);
 
             if (itemsAdded > 0)
             {
@@ -476,221 +477,54 @@ namespace Oxide.Plugins
             }
         }
 
-        private void FindContainerItems<T>(ItemContainer container, ref T itemQuery, List<Item> collect, bool childItemsOnly = false) where T : IItemQuery
-        {
-            foreach (var item in container.itemList)
-            {
-                var usableAmount = childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
-                if (usableAmount > 0)
-                {
-                    collect.Add(item);
-                }
-
-                ItemContainer childContainer;
-                if (HasSearchableContainer(item, out childContainer))
-                {
-                    FindContainerItems(childContainer, ref itemQuery, collect);
-                }
-            }
-        }
-
         private void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
         {
-            FindContainerItems(player.inventory.containerMain, ref itemQuery, collect);
-            FindContainerItems(player.inventory.containerBelt, ref itemQuery, collect);
-            FindContainerItems(player.inventory.containerWear, ref itemQuery, collect, childItemsOnly: true);
-
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList != null)
-            {
-                foreach (var containerEntry in containerList)
-                {
-                    if (!containerEntry.CanUse())
-                        continue;
-
-                    FindContainerItems(containerEntry.Container, ref itemQuery, collect);
-                }
-            }
-        }
-
-        private int SumContainerItems<T>(ItemContainer container, ref T itemQuery, bool childItemsOnly = false) where T : IItemQuery
-        {
-            var sum = 0;
-
-            foreach (var item in container.itemList)
-            {
-                sum += childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
-
-                ItemContainer childContainer;
-                if (HasSearchableContainer(item, out childContainer))
-                {
-                    sum += SumContainerItems(childContainer, ref itemQuery);
-                }
-            }
-
-            return sum;
+            ItemUtils.FindItems(player.inventory.containerMain.itemList, ref itemQuery, collect);
+            ItemUtils.FindItems(player.inventory.containerBelt.itemList, ref itemQuery, collect);
+            ItemUtils.FindItems(player.inventory.containerWear.itemList, ref itemQuery, collect, childItemsOnly: true);
+            _supplierManager.FindPlayerItems(player, ref itemQuery, collect);
+            _containerManager.FindPlayerItems(player, ref itemQuery, collect);
         }
 
         private int SumPlayerItems<T>(BasePlayer player, ref T itemQuery) where T : IItemQuery
         {
-            var sum = SumContainerItems(player.inventory.containerMain, ref itemQuery)
-                + SumContainerItems(player.inventory.containerBelt, ref itemQuery)
-                + SumContainerItems(player.inventory.containerWear, ref itemQuery, childItemsOnly: true);
-
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList != null)
-            {
-                foreach (var containerEntry in containerList)
-                {
-                    if (!containerEntry.CanUse())
-                        continue;
-
-                    sum += SumContainerItems(containerEntry.Container, ref itemQuery);
-                }
-            }
-
-            return sum;
-        }
-
-        private int TakeContainerItems<T>(ItemContainer container, ref T itemQuery, int totalAmountToTake, List<Item> collect, bool childItemsOnly = false) where T : IItemQuery
-        {
-            var totalAmountTaken = 0;
-
-            for (var i = container.itemList.Count - 1; i >= 0; i--)
-            {
-                var amountToTake = totalAmountToTake - totalAmountTaken;
-                if (amountToTake <= 0)
-                    break;
-
-                var item = container.itemList[i];
-                var usableAmount = childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
-                if (usableAmount > 0)
-                {
-                    amountToTake = Math.Min(item.amount, amountToTake);
-
-                    if (item.amount > amountToTake)
-                    {
-                        if (collect != null)
-                        {
-                            var splitItem = item.SplitItem(amountToTake);
-                            var playerOwner = splitItem.GetOwnerPlayer();
-                            if (playerOwner != null)
-                            {
-                                splitItem.CollectedForCrafting(playerOwner);
-                            }
-                            collect.Add(splitItem);
-                        }
-                        else
-                        {
-                            item.amount -= amountToTake;
-                            item.MarkDirty();
-                        }
-                    }
-                    else
-                    {
-                        item.RemoveFromContainer();
-
-                        if (collect != null)
-                        {
-                            collect.Add(item);
-                        }
-                        else
-                        {
-                            item.Remove();
-                        }
-                    }
-
-                    totalAmountTaken += amountToTake;
-                }
-
-                ItemContainer childContainer;
-                if (HasSearchableContainer(item, out childContainer))
-                {
-                    totalAmountTaken += TakeContainerItems(childContainer, ref itemQuery, amountToTake, collect);
-                }
-
-                if (totalAmountTaken >= totalAmountToTake)
-                    return totalAmountTaken;
-            }
-
-            return totalAmountTaken;
+            return ItemUtils.SumItems(player.inventory.containerMain.itemList, ref itemQuery)
+                + ItemUtils.SumItems(player.inventory.containerBelt.itemList, ref itemQuery)
+                + ItemUtils.SumItems(player.inventory.containerWear.itemList, ref itemQuery, childItemsOnly: true)
+                + _supplierManager.SumPlayerItems(player, ref itemQuery)
+                + _containerManager.SumPlayerItems(player, ref itemQuery);
         }
 
         private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
         {
-            var amountTaken = TakeContainerItems(player.inventory.containerMain, ref itemQuery, amountToTake, collect);
+            var amountTaken = ItemUtils.TakeItems(player.inventory.containerMain.itemList, ref itemQuery, amountToTake, collect);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerBelt, ref itemQuery, amountToTake - amountTaken, collect);
+            amountTaken += ItemUtils.TakeItems(player.inventory.containerBelt.itemList, ref itemQuery, amountToTake - amountTaken, collect);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerWear, ref itemQuery, amountToTake - amountTaken, collect, childItemsOnly: true);
+            amountTaken += ItemUtils.TakeItems(player.inventory.containerWear.itemList, ref itemQuery, amountToTake - amountTaken, collect, childItemsOnly: true);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList != null)
-            {
-                foreach (var containerEntry in containerList)
-                {
-                    if (!containerEntry.CanUse())
-                        continue;
+            amountTaken += _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake - amountTaken, collect);
+            if (amountTaken >= amountToTake)
+                return amountTaken;
 
-                    amountTaken += TakeContainerItems(containerEntry.Container, ref itemQuery, amountToTake - amountTaken, collect);
-                    if (amountTaken >= amountToTake)
-                        return amountTaken;
-                }
-            }
+            amountTaken += _containerManager.TakePlayerItems(player, ref itemQuery, amountToTake - amountTaken, collect);
 
             return amountTaken;
         }
 
         private void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
         {
-            if (player.inventory.containerMain != null)
-            {
-                player.inventory.containerMain.FindAmmo(collect, ammoType);
-            }
-
-            if (player.inventory.containerBelt != null)
-            {
-                player.inventory.containerBelt.FindAmmo(collect, ammoType);
-            }
-
-            var containerList = _containerManager.GetContainerList(player);
-            if (containerList != null)
-            {
-                foreach (var containerEntry in containerList)
-                {
-                    if (!containerEntry.CanUse())
-                        continue;
-
-                    containerEntry.Container.FindAmmo(collect, ammoType);
-                }
-            }
-        }
-
-        private bool HasItemMod<T>(ItemDefinition itemDefinition) where T : ItemMod
-        {
-            foreach (var itemMod in itemDefinition.itemMods)
-            {
-                if (itemMod is T)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private bool HasSearchableContainer(Item item, out ItemContainer container)
-        {
-            container = item.contents;
-            if (container == null)
-                return false;
-
-            // Don't consider vanilla containers searchable (i.e., don't take low grade out of a miner's hat).
-            return !HasItemMod<ItemModContainer>(item.info);
+            player.inventory.containerMain?.FindAmmo(collect, ammoType);
+            player.inventory.containerBelt?.FindAmmo(collect, ammoType);
+            player.inventory.containerWear?.FindAmmo(collect, ammoType);
+            _supplierManager.FindPlayerAmmo(player, ammoType, collect);
+            _containerManager.FindPlayerAmmo(player, ammoType, collect);
         }
 
         #endregion
@@ -742,11 +576,208 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Item Utils
+
+        private static class ItemUtils
+        {
+            public static int SerializeForNetwork(List<Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot, bool addChildContainersOnly = false)
+            {
+                var itemsAdded = 0;
+
+                for (var i = 0; i < itemList.Count; i++)
+                {
+                    var item = itemList[i];
+
+                    if (!addChildContainersOnly)
+                    {
+                        var itemData = item.Save();
+                        itemData.slot = nextInvisibleSlot++;
+
+                        containerData.contents.Add(itemData);
+                        itemsAdded++;
+                    }
+
+                    List<Item> childItemList;
+                    if (HasSearchableContainer(item, out childItemList))
+                    {
+                        itemsAdded += SerializeForNetwork(childItemList, containerData, ref nextInvisibleSlot);
+                    }
+                }
+
+                return itemsAdded;
+            }
+
+            public static int SerializeForNetwork(List<ProtoBuf.Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
+            {
+                var itemsAdded = 0;
+
+                for (var i = 0; i < itemList.Count; i++)
+                {
+                    var itemData = itemList[i];
+                    itemData.slot = nextInvisibleSlot++;
+                    containerData.contents.Add(itemData);
+                    itemsAdded++;
+
+                    List<ProtoBuf.Item> childItemList;
+                    if (HasSearchableContainer(itemData, out childItemList))
+                    {
+                        itemsAdded += SerializeForNetwork(childItemList, containerData, ref nextInvisibleSlot);
+                    }
+                }
+
+                return itemsAdded;
+            }
+
+            public static void FindItems<T>(List<Item> itemList, ref T itemQuery, List<Item> collect, bool childItemsOnly = false) where T : IItemQuery
+            {
+                for (var i = 0; i < itemList.Count; i++)
+                {
+                    var item = itemList[i];
+                    var usableAmount = childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
+                    if (usableAmount > 0)
+                    {
+                        collect.Add(item);
+                    }
+
+                    List<Item> childItemList;
+                    if (HasSearchableContainer(item, out childItemList))
+                    {
+                        FindItems(childItemList, ref itemQuery, collect);
+                    }
+                }
+            }
+
+            public static int SumItems<T>(List<Item> itemList, ref T itemQuery, bool childItemsOnly = false) where T : IItemQuery
+            {
+                var sum = 0;
+
+                for (var i = 0; i < itemList.Count; i++)
+                {
+                    var item = itemList[i];
+                    sum += childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
+
+                    List<Item> childItemList;
+                    if (HasSearchableContainer(item, out childItemList))
+                    {
+                        sum += SumItems(childItemList, ref itemQuery);
+                    }
+                }
+
+                return sum;
+            }
+
+            public static int TakeItems<T>(List<Item> itemList, ref T itemQuery, int totalAmountToTake, List<Item> collect, bool childItemsOnly = false) where T : IItemQuery
+            {
+                var totalAmountTaken = 0;
+
+                for (var i = itemList.Count - 1; i >= 0; i--)
+                {
+                    var amountToTake = totalAmountToTake - totalAmountTaken;
+                    if (amountToTake <= 0)
+                        break;
+
+                    var item = itemList[i];
+                    var usableAmount = childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
+                    if (usableAmount > 0)
+                    {
+                        amountToTake = Math.Min(item.amount, amountToTake);
+
+                        if (item.amount > amountToTake)
+                        {
+                            if (collect != null)
+                            {
+                                var splitItem = item.SplitItem(amountToTake);
+                                var playerOwner = splitItem.GetOwnerPlayer();
+                                if (playerOwner != null)
+                                {
+                                    splitItem.CollectedForCrafting(playerOwner);
+                                }
+                                collect.Add(splitItem);
+                            }
+                            else
+                            {
+                                item.amount -= amountToTake;
+                                item.MarkDirty();
+                            }
+                        }
+                        else
+                        {
+                            item.RemoveFromContainer();
+
+                            if (collect != null)
+                            {
+                                collect.Add(item);
+                            }
+                            else
+                            {
+                                item.Remove();
+                            }
+                        }
+
+                        totalAmountTaken += amountToTake;
+                    }
+
+                    List<Item> childItemList;
+                    if (HasSearchableContainer(item, out childItemList))
+                    {
+                        totalAmountTaken += TakeItems(childItemList, ref itemQuery, amountToTake, collect);
+                    }
+
+                    if (totalAmountTaken >= totalAmountToTake)
+                        return totalAmountTaken;
+                }
+
+                return totalAmountTaken;
+            }
+
+            private static bool HasItemMod<T>(ItemDefinition itemDefinition) where T : ItemMod
+            {
+                for (var i = 0; i < itemDefinition.itemMods.Length; i++)
+                {
+                    var itemMod = itemDefinition.itemMods[i];
+                    if (itemMod is T)
+                        return true;
+                }
+
+                return false;
+            }
+
+            private static bool HasSearchableContainer(ItemDefinition itemDefinition)
+            {
+                // Don't consider vanilla containers searchable (i.e., don't take low grade out of a miner's hat).
+                return !HasItemMod<ItemModContainer>(itemDefinition);
+            }
+
+            private static bool HasSearchableContainer(int itemId)
+            {
+                var itemDefinition = ItemManager.FindItemDefinition(itemId);
+                if ((object)itemDefinition == null)
+                    return false;
+
+                return HasSearchableContainer(itemDefinition);
+            }
+
+            private static bool HasSearchableContainer(Item item, out List<Item> itemList)
+            {
+                itemList = item.contents?.itemList;
+                return itemList?.Count > 0 && HasSearchableContainer(item.info);
+            }
+
+            private static bool HasSearchableContainer(ProtoBuf.Item itemData, out List<ProtoBuf.Item> itemList)
+            {
+                itemList = itemData.contents?.contents;
+                return itemList?.Count > 0 && HasSearchableContainer(itemData.itemid);
+            }
+        }
+
+        #endregion
+
         #region Item Query
 
         private interface IItemQuery
         {
             int GetUsableAmount(Item item);
+            void PopulateItemQuery(Dictionary<string, object> itemQueryDict);
         }
 
         private struct ItemIdQuery : IItemQuery
@@ -762,27 +793,41 @@ namespace Oxide.Plugins
             {
                 return ItemId != item.info.itemid ? 0 : item.amount;
             }
+
+            public void PopulateItemQuery(Dictionary<string, object> itemQueryDict)
+            {
+                itemQueryDict.Clear();
+                itemQueryDict[ItemQuery.ItemIdField] = ObjectCache.Get(ItemId);
+            }
         }
 
         private struct ItemQuery : IItemQuery
         {
-            public static ItemQuery FromDict(Dictionary<string, object> dict)
-            {
-                var itemQuery = new ItemQuery
-                {
-                    RawQuery = dict,
-                };
+            public const string BlueprintIdField = "BlueprintId";
+            public const string DisplayNameField = "DisplayName";
+            public const string DataIntField = "DataInt";
+            public const string FlagsContainField = "FlagsContain";
+            public const string FlagsEqualField = "FlagsEqual";
+            public const string ItemDefinitionField = "ItemDefinition";
+            public const string ItemIdField = "ItemId";
+            public const string MinConditionField = "MinCondition";
+            public const string RequireEmptyField = "RequireEmpty";
+            public const string SkinIdField = "SkinId";
 
-                GetOption(dict, "BlueprintId", out itemQuery.BlueprintId);
-                GetOption(dict, "DisplayName", out itemQuery.DisplayName);
-                GetOption(dict, "DataInt", out itemQuery.DataInt);
-                GetOption(dict, "FlagsContain", out itemQuery.FlagsContain);
-                GetOption(dict, "FlagsEqual", out itemQuery.FlagsEqual);
-                GetOption(dict, "ItemDefinition", out itemQuery.ItemDefinition);
-                GetOption(dict, "ItemId", out itemQuery.ItemId);
-                GetOption(dict, "MinCondition", out itemQuery.MinCondition);
-                GetOption(dict, "RequireEmpty", out itemQuery.RequireEmpty);
-                GetOption(dict, "SkinId", out itemQuery.SkinId);
+            public static ItemQuery Parse(Dictionary<string, object> raw)
+            {
+                var itemQuery = new ItemQuery();
+
+                GetOption(raw, BlueprintIdField, out itemQuery.BlueprintId);
+                GetOption(raw, DisplayNameField, out itemQuery.DisplayName);
+                GetOption(raw, DataIntField, out itemQuery.DataInt);
+                GetOption(raw, FlagsContainField, out itemQuery.FlagsContain);
+                GetOption(raw, FlagsEqualField, out itemQuery.FlagsEqual);
+                GetOption(raw, ItemDefinitionField, out itemQuery.ItemDefinition);
+                GetOption(raw, ItemIdField, out itemQuery.ItemId);
+                GetOption(raw, MinConditionField, out itemQuery.MinCondition);
+                GetOption(raw, RequireEmptyField, out itemQuery.RequireEmpty);
+                GetOption(raw, SkinIdField, out itemQuery.SkinId);
 
                 return itemQuery;
             }
@@ -795,7 +840,6 @@ namespace Oxide.Plugins
                     : default(T);
             }
 
-            public Dictionary<string, object> RawQuery;
             public int? BlueprintId;
             public int? DataInt;
             public string DisplayName;
@@ -839,6 +883,39 @@ namespace Oxide.Plugins
                     : item.amount;
             }
 
+            public void PopulateItemQuery(Dictionary<string, object> itemQueryDict)
+            {
+                itemQueryDict.Clear();
+
+                if (BlueprintId.HasValue)
+                    itemQueryDict[BlueprintIdField] = ObjectCache.Get(BlueprintId.Value);
+
+                if (DataInt.HasValue)
+                    itemQueryDict[DataIntField] = ObjectCache.Get(DataInt.Value);
+
+                if (DisplayName != null)
+                    itemQueryDict[DisplayNameField] = DisplayName;
+
+                if (FlagsContain.HasValue)
+                    itemQueryDict[FlagsContainField] = ObjectCache.Get(FlagsContain.Value);
+
+                if (FlagsEqual.HasValue)
+                    itemQueryDict[FlagsEqualField] = ObjectCache.Get(FlagsEqual.Value);
+
+                var itemId = GetItemId();
+                if (itemId.HasValue)
+                    itemQueryDict[ItemIdField] = ObjectCache.Get(itemId.Value);
+
+                if (MinCondition > 0)
+                    itemQueryDict[MinConditionField] = ObjectCache.Get(MinCondition);
+
+                if (RequireEmpty)
+                    itemQueryDict[RequireEmptyField] = True;
+
+                if (SkinId.HasValue)
+                    itemQueryDict[SkinIdField] = ObjectCache.Get(SkinId.Value);
+            }
+
             private int? GetItemId()
             {
                 if (ItemDefinition != null)
@@ -860,6 +937,149 @@ namespace Oxide.Plugins
             private bool HasCondition()
             {
                 return GetItemDefinition()?.condition.enabled ?? false;
+            }
+        }
+
+        #endregion
+
+        #region Item Supplier Manager
+
+        private class ItemSupplier
+        {
+            public static ItemSupplier FromSpec(Plugin plugin, Dictionary<string, object> spec)
+            {
+                var supplier = new ItemSupplier
+                {
+                    Plugin = plugin,
+                };
+
+                GetOption(spec, "FindPlayerItems", out supplier.FindPlayerItems);
+                GetOption(spec, "SumPlayerItems", out supplier.SumPlayerItems);
+                GetOption(spec, "TakePlayerItems", out supplier.TakePlayerItems);
+                GetOption(spec, "FindPlayerAmmo", out supplier.FindPlayerAmmo);
+                GetOption(spec, "SerializeForNetwork", out supplier.SerializeForNetwork);
+
+                return supplier;
+            }
+
+            private static void GetOption<T>(Dictionary<string, object> dict, string key, out T result)
+            {
+                object value;
+                result = dict.TryGetValue(key, out value) && value is T
+                    ? (T)value
+                    : default(T);
+            }
+
+            public Plugin Plugin { get; private set; }
+            public Action<BasePlayer, Dictionary<string, object>, List<Item>> FindPlayerItems;
+            public Func<BasePlayer, Dictionary<string, object>, int> SumPlayerItems;
+            public Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int> TakePlayerItems;
+            public Action<BasePlayer, AmmoTypes, List<Item>> FindPlayerAmmo;
+            public Action<BasePlayer, List<ProtoBuf.Item>> SerializeForNetwork;
+        }
+
+        private class SupplierManager
+        {
+            // Use a list with standard for loops for high performance.
+            private List<ItemSupplier> _suppliers = new List<ItemSupplier>();
+
+            private List<ProtoBuf.Item> _reusableItemListForNetwork = new List<ProtoBuf.Item>(32);
+            private Dictionary<string, object> _reusableItemQuery = new Dictionary<string, object>();
+
+            public void AddSupplier(Plugin plugin, Dictionary<string, object> spec)
+            {
+                RemoveSupplier(plugin);
+                _suppliers.Add(ItemSupplier.FromSpec(plugin, spec));
+            }
+
+            public void RemoveSupplier(Plugin plugin)
+            {
+                for (var i = 0; i < _suppliers.Count; i++)
+                {
+                    var supplier = _suppliers[i];
+                    if (supplier.Plugin.Name != plugin.Name)
+                        continue;
+
+                    _suppliers.RemoveAt(i);
+                    return;
+                }
+            }
+
+            public int SerializeForNetwork(BasePlayer player, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
+            {
+                if (_suppliers.Count == 0)
+                    return 0;
+
+                _reusableItemListForNetwork.Clear();
+
+                for (var i = 0; i < _suppliers.Count; i++)
+                {
+                    _suppliers[i].SerializeForNetwork?.Invoke(player, _reusableItemListForNetwork);
+                }
+
+                var itemsAdded = ItemUtils.SerializeForNetwork(_reusableItemListForNetwork, containerData, ref nextInvisibleSlot);
+
+                _reusableItemListForNetwork.Clear();
+
+                return itemsAdded;
+            }
+
+            public void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
+            {
+                if (_suppliers.Count == 0)
+                    return;
+
+                itemQuery.PopulateItemQuery(_reusableItemQuery);
+
+                for (var i = 0; i < _suppliers.Count; i++)
+                {
+                    _suppliers[i].FindPlayerItems?.Invoke(player, _reusableItemQuery, collect);
+                }
+            }
+
+            public int SumPlayerItems<T>(BasePlayer player, ref T itemQuery) where T : IItemQuery
+            {
+                if (_suppliers.Count == 0)
+                    return 0;
+
+                itemQuery.PopulateItemQuery(_reusableItemQuery);
+
+                var sum = 0;
+
+                for (var i = 0; i < _suppliers.Count; i++)
+                {
+                    sum += _suppliers[i].SumPlayerItems?.Invoke(player, _reusableItemQuery) ?? 0;
+                }
+
+                return sum;
+            }
+
+            public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
+            {
+                if (_suppliers.Count == 0)
+                    return 0;
+
+                itemQuery.PopulateItemQuery(_reusableItemQuery);
+
+                var amountTaken = 0;
+
+                for (var i = 0; i < _suppliers.Count; i++)
+                {
+                    amountToTake += _suppliers[i].TakePlayerItems?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect) ?? 0;
+
+                    if (amountTaken >= amountToTake)
+                        return amountTaken;
+                }
+
+                return amountTaken;
+            }
+
+            public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
+            {
+                for (var i = 0; i < _suppliers.Count; i++)
+                {
+                    _suppliers[i].FindPlayerAmmo?.Invoke(player, ammoType, collect);
+                }
             }
         }
 
@@ -924,6 +1144,8 @@ namespace Oxide.Plugins
             public ItemContainer Container;
             public Func<Plugin, BasePlayer, ItemContainer, bool> CanUseContainer;
 
+            public bool IsValid => Container?.itemList != null;
+
             public void Deactivate()
             {
                 if (EntityTracker != null)
@@ -940,6 +1162,53 @@ namespace Oxide.Plugins
 
         private class ContainerManager
         {
+            private static bool HasContainer(List<ContainerEntry> containerList, ItemContainer container)
+            {
+                foreach (var containerEntry in containerList)
+                {
+                    if (containerEntry.Container == container)
+                        return true;
+                }
+
+                return false;
+            }
+
+            private static bool RemoveEntries(List<ContainerEntry> containerList, BasePlayer player)
+            {
+                var anyRemoved = false;
+
+                for (var i = containerList.Count - 1; i >= 0; i--)
+                {
+                    var containerEntry = containerList[i];
+                    if (containerEntry.Player == player)
+                    {
+                        containerList.RemoveAt(i);
+                        containerEntry.Deactivate();
+                        anyRemoved = true;
+                    }
+                }
+
+                return anyRemoved;
+            }
+
+            private static bool RemoveEntry(List<ContainerEntry> containerList, Plugin plugin, BasePlayer player, ItemContainer container)
+            {
+                for (var i = containerList.Count - 1; i >= 0; i--)
+                {
+                    var containerEntry = containerList[i];
+                    if (containerEntry.Plugin == plugin
+                        && containerEntry.Player == player
+                        && containerEntry.Container == container)
+                    {
+                        containerList.RemoveAt(i);
+                        containerEntry.Deactivate();
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
             private Dictionary<ulong, List<ContainerEntry>> _playerContainerEntries = new Dictionary<ulong, List<ContainerEntry>>();
             private Dictionary<BaseEntity, EntityTracker> _entityTrackers = new Dictionary<BaseEntity, EntityTracker>();
 
@@ -1109,51 +1378,100 @@ namespace Oxide.Plugins
                     : null;
             }
 
-            private bool HasContainer(List<ContainerEntry> containerList, ItemContainer container)
+            public int SerializeForNetwork(BasePlayer player, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
             {
-                foreach (var containerEntry in containerList)
-                {
-                    if (containerEntry.Container == container)
-                        return true;
-                }
+                var containerList = GetContainerList(player);
+                if (containerList == null)
+                    return 0;
 
-                return false;
-            }
+                var itemsAdded = 0;
 
-            private bool RemoveEntries(List<ContainerEntry> containerList, BasePlayer player)
-            {
-                var anyRemoved = false;
-
-                for (var i = containerList.Count - 1; i >= 0; i--)
+                for (var i = 0; i < containerList.Count; i++)
                 {
                     var containerEntry = containerList[i];
-                    if (containerEntry.Player == player)
-                    {
-                        containerList.RemoveAt(i);
-                        containerEntry.Deactivate();
-                        anyRemoved = true;
-                    }
+                    if (!containerEntry.CanUse())
+                        continue;
+
+                    itemsAdded += ItemUtils.SerializeForNetwork(containerEntry.Container.itemList, containerData,
+                        ref nextInvisibleSlot);
                 }
 
-                return anyRemoved;
+                return itemsAdded;
             }
 
-            private bool RemoveEntry(List<ContainerEntry> containerList, Plugin plugin, BasePlayer player, ItemContainer container)
+            public void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
             {
-                for (var i = containerList.Count - 1; i >= 0; i--)
+                var containerList = GetContainerList(player);
+                if (containerList == null)
+                    return;
+
+                for (var i = 0; i < containerList.Count; i++)
                 {
                     var containerEntry = containerList[i];
-                    if (containerEntry.Plugin == plugin
-                        && containerEntry.Player == player
-                        && containerEntry.Container == container)
-                    {
-                        containerList.RemoveAt(i);
-                        containerEntry.Deactivate();
-                        return true;
-                    }
+                    if (!containerEntry.IsValid || !containerEntry.CanUse())
+                        continue;
+
+                    ItemUtils.FindItems(containerEntry.Container.itemList, ref itemQuery, collect);
+                }
+            }
+
+            public int SumPlayerItems<T>(BasePlayer player, ref T itemQuery) where T : IItemQuery
+            {
+                var containerList = GetContainerList(player);
+                if (containerList == null)
+                    return 0;
+
+                var sum = 0;
+
+                for (var i = 0; i < containerList.Count; i++)
+                {
+                    var containerEntry = containerList[i];
+                    if (!containerEntry.IsValid || !containerEntry.CanUse())
+                        continue;
+
+                    sum += ItemUtils.SumItems(containerEntry.Container.itemList, ref itemQuery);
                 }
 
-                return false;
+                return sum;
+            }
+
+            public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
+            {
+                var containerList = GetContainerList(player);
+                if (containerList == null)
+                    return 0;
+
+                var amountTaken = 0;
+
+                for (var i = 0; i < containerList.Count; i++)
+                {
+                    var containerEntry = containerList[i];
+                    if (!containerEntry.IsValid || !containerEntry.CanUse())
+                        continue;
+
+                    amountTaken += ItemUtils.TakeItems(containerEntry.Container.itemList, ref itemQuery, amountToTake - amountTaken, collect);
+
+                    if (amountTaken >= amountToTake)
+                        return amountTaken;
+                }
+
+                return amountTaken;
+            }
+
+            public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
+            {
+                var containerList = GetContainerList(player);
+                if (containerList == null)
+                    return;
+
+                for (var i = 0; i < containerList.Count; i++)
+                {
+                    var containerEntry = containerList[i];
+                    if (!containerEntry.CanUse())
+                        continue;
+
+                    containerEntry.Container.FindAmmo(collect, ammoType);
+                }
             }
         }
 

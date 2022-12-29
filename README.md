@@ -1,18 +1,29 @@
 ## Features
 
-- Allows players to build, craft, reload and more using items from external containers
-- Supports building, upgrading, crafting, repairing, reloading, door keys, vending machine purchases, vendor purchases, and tech tree research
-- Supports many other plugins that call vanilla functions to count and take items
-- API allows other plugins to add and remove containers for players
-- Demonstration commands allow adding and removing specific containers or backpack containers
+- Allows players to build, craft, reload and more using items from external sources
+- Supports building, upgrading, crafting, repairing, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, and unlocking blueprints via the tech tree
+- Supports many plugins that call vanilla functions to find and take items
+- Functions as a middle man between plugins that consume items and plugins that supply items
 
 ## How it works
 
-When a plugin registers a container with a player, the player will immediately be able to use all items available inside of it. Vanilla UIs that display resource counts, such as the crafting menu, will reflect the total amount of items the player has across their inventory and registered containers.
+If you install this plugin by itself, it will have no effect. This plugin shines when you use other plugins which are compatible with it.
 
-## Incompatible plugins
+- When the Backpacks plugin is installed, players will be able to build/craft/etc. using the items inside their backpacks.
+- When the Bag of Holding plugin is installed, players will be able to build/craft/etc. using the items inside their bags.
+- When the Virtual Items plugin is installed, players will be able to build/craft/etc. using no items at all.
 
-Any plugin which reduces the player inventory space to less than 24 is not compatible.
+### Concepts
+
+- **Item Consumers** -- Any plugin or vanilla function that takes or deletes items from player inventories.
+  - Example vanilla functions: Building, upgrading, crafting, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, unlocking blueprints via the tech tree
+  - Example plugins: [Custom Vending Setup](https://umod.org/plugins/custom-vending-setup) 
+- **Item Suppliers** -- Any plugin that hooks into Item Retriever to provide items on-demand for Item Consumers. Allows loading or creating items on-demand.
+  - Example plugins: [Backpacks](https://umod.org/plugins/backpacks), Virtual Items
+- **Container Suppliers** -- Any plugin that registers containers with Item Retriever. Item Retriever will search those containers on-demand for Item Consumers. For example, a plugin could add a UI button to storage containers, allowing players to individually toggle whether they can remotely utilize the contents of those containers.
+  - Example plugins: None at this time.
+
+In addition to explicit Item Suppliers and Container Suppliers, plugins that store items inside other items, such as Bag of Holding, automatically function as compatible Item Suppliers.
 
 ## Permissions
 
@@ -25,17 +36,33 @@ Any plugin which reduces the player inventory space to less than 24 is not compa
 - `retriever.backpack.add` -- Adds your backpack to your registered containers.
 - `retriever.backpack.remove` -- Removes your backpack from your registered containers.
 
+## Incompatible plugins
+
+Any plugin which reduces the player inventory space to less than 24 is not compatible. For example, Clothing Slots.
+
 ## How developers should integrate with this plugin
 
-1. When your plugin loads, determine which players should have which containers available to them, and call the `API_AddContainer` to register those containers
-2. When Item Retriever reloads, run the same logic as step 1
-3. When a player connects/spawns/awakens/etc. and should have containers available to them (such as their backpack container), call `API_AddContainer` to register those containers
+### Item Consumers
 
-If you want to allow other plugins to dynamically disable player access to containers that your plugin provides for players (e.g., you are a backpack plugin, and an event/arena plugin wants to disable backpack access while in the event/arena), then you should do the following.
+If your plugin needs to take items from player inventories and only cares about item ids, then simply utilize vanilla Rust methods from the `PlayerInventory` class and that will call hooks that Item Retriever already intercepts.
 
-1. Maintain internal plugin state that dictates which containers should be accessible
-2. When calling `API_AddContainer`, pass the `canUseContainer` callback which should access the above state
-3. Expose API methods to allow other plugins to toggle container access for a given player
+If your plugin needs to take items from player inventories, and you care about more than just item ids, then do the following.
+
+- While Item Retriever is loaded, sum and take player items via `API_SumPlayerItems` and `API_TakePlayerItems`. Do not search for items yourself.
+- While Item Retriever is not loaded, implement custom logic to sum and take those items.
+
+### Item Suppliers
+
+If your plugin externally stores items for players, such as in data files, especially if that data is lazily loaded, then you probably want to be an Item Supplier. Use `API_AddSupplier` to register callbacks with Item Retriever, which will be called on-demand when Item Consumers want to sum or take items. Your callbacks will be passed the player that the items are for, plus a query describing the items for which to search.
+
+In some cases, you may not need to create the actual `Item` instances.
+
+- When summing items, you can simply enumerate the contents of a data file and return the result. If the items don't exist anywhere, such as free items, then you can simply return whatever sum you want.
+- When taking items, if the `collect` list is `null`, that means another plugin simply wanted to delete the items, so you can simply update a data layer which represents the items, without creating any `Item` instances. If the items don't exist anywhere, such as free items, then you can simply create new items.
+
+### Container Suppliers
+
+If your plugin deals exclusively with containers that reside in the physical world of Rust (no external data), you probably want to become a Container Supplier. Use `API_AddContainer` and `API_RemoveContainer` to associate and disassociate specific containers with specific players. Item Retriever will search those containers on-demand when Item Consumers want to sum or take items.
 
 ## Developer API
 
@@ -159,6 +186,99 @@ private int GetPlayerEpicScrapAmount(BasePlayer player)
 }
 ```
 
+#### API_AddSupplier
+
+```cs
+void API_AddSupplier(Plugin plugin, Dictionary<string, object> spec)
+```
+
+Registers a plugin as an Item Supplier. A Supplier is basically a set of hooks that may be called by Item Retriever in order to find, sum or take items for players.
+
+Supported fields (all optional):
+
+- `FindPlayerItems`: `Action<BasePlayer, Dictionary<string, object>, List<Item>>` -- This will be called when a plugin or a vanilla function wants to obtain a list of specific items for a specific player. If you are implementing a plugin which gives players free items that are created on-demand, do not implement this function, since there is no guarantee that the requester will use the items, so implementing this would likely result in items being leaked.
+- `SumPlayerItems`: `Func<BasePlayer, Dictionary<string, object>, int>` -- This will be called when a plugin or a vanilla function wants to know if a specific player has sufficient quantity of a specific item. See the section bleow
+- `TakePlayerItems`: `Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int>` -- This will be called when a plugin or a vanilla function has already determined that a specific player has sufficient quantity of a specific item, and now wants to take those items.
+- `FindPlayerAmmo`: `Action<BasePlayer, AmmoTypes, List<Item>>` -- This will be called when a plugin or a vanilla function wants to locate all ammo items matching a specific type for a specific player.
+- `SerializeForNetwork`: `Action<BasePlayer, List<ProtoBuf.Item>>` -- This will be called when a plugin or a vanilla function wants to send a snapshot of the player's inventory to them. When you implement this hook and add items to the provided list, those items will be included in the snapshot sent to the player, causing that player's game client to think it has those items, even though they are not visible in the inventory.
+
+Example to supply unlimited wood:
+
+```cs
+private const int WoodItemId = -151838493;
+private const int WoodAmount = 1000000;
+
+[PluginReference]
+private readonly Plugin ItemRetriever;
+
+private void OnServerInitialized()
+{
+    AddSupplier();
+}
+
+private void OnPluginLoaded(Plugin plugin)
+{
+    if (plugin.Name == nameof(ItemRetriever))
+    {
+        AddSupplier();
+    }
+}
+
+private void AddSupplier()
+{
+    ItemRetriever?.Call("API_AddSupplier", this, new Dictionary<string, object>
+    {
+        ["SumPlayerItems"] = new Func<BasePlayer, Dictionary<string, object>, int>((player, rawItemQuery) =>
+        {
+            object itemIdObj;
+            if (!rawItemQuery.TryGetValue("ItemId", out itemIdObj))
+                return 0;
+
+            var itemId = Convert.ToInt32(itemIdObj);
+            if (itemId != WoodItemId)
+                return 0;
+
+            return WoodAmount;
+        }),
+
+        ["TakePlayerItems"] = new Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int>((player, rawItemQuery, amount, collect) =>
+        {
+            object itemIdObj;
+            if (!rawItemQuery.TryGetValue("ItemId", out itemIdObj))
+                return 0;
+
+            var itemId = Convert.ToInt32(itemIdObj);
+            if (itemId != WoodItemId)
+                return 0;
+
+            collect?.Add(ItemManager.CreateByItemID(WoodItemId, amount));
+
+            // Return the full amount, so ItemRetriever will stop looking for more items.
+            return amount;
+        }),
+
+        ["SerializeForNetwork"] = new Action<BasePlayer, List<ProtoBuf.Item>>((player, itemList) =>
+        {
+            // Make the client think it has an additional wood.
+            var itemData = Facepunch.Pool.Get<ProtoBuf.Item>();
+            itemData.itemid = WoodItemId;
+            itemData.amount = WoodAmount;
+            itemList.Add(itemData);
+        }),
+    });
+}
+```
+
+#### API_RemoveSupplier
+
+```cs
+void API_RemoveSupplier(Plugin plugin)
+```
+
+Removes the specified item supplier. Once a supplier has been removed, players will no longer be able to access that supplier's items. Existing players may temporarily have stale inventory snapshots that indicate those items are still available, but that will automatically resolve itself when the player's inventory next changes.
+
+Note: It's not necessary to call this when your plugin unloads because Item Retriever will detect your plugin unloading and will unregister it automatically.
+
 #### API_AddContainer
 
 ```cs
@@ -225,21 +345,62 @@ void API_FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collec
 
 Searches the player inventory and extra containers, adding all items to the `collect` list that match the specified `ammoType`.
 
-#### Supported Item Query Fields
+#### Item queries
 
-The `API_FindPlayerItems`, `API_SumPlayerItems` and `API_TakePlayerItems` APIs all accept a `Dictionary<string, object>` item query with the following optional fields.
+The `API_FindPlayerItems`, `API_SumPlayerItems` and `API_TakePlayerItems` APIs all accept a `Dictionary<string, object>` item query with the following optional fields. Additionally, the `API_AddSupplier` method will provide a dictionary with the same fields when calling supplier hooks.
 
-- `"BlueprintId"`: `int`
-- `"DisplayName"`: `string`
-- `"DataInt"`: `int`
-- `"FlagsContain"`: `Item.Flag`
-- `"FlagsEqual"`: `Item.Flag`
-- `"ItemDefinition"`: `ItemDefinition`
-- `"ItemId"`: `int`
-- `"MinCondition"`: `float`
-- `"RequireEmpty"`: `bool`
-- `"SkinId"`: `ulong`
+- `"BlueprintId"`: `int` -- Corresponds to `item.blueprintTarget`.
+- `"DisplayName"`: `string` -- Corresponds to `item.name`.
+- `"DataInt"`: `int` -- Corresponds to `item.instanceData.dataInt`.
+- `"FlagsContain"`: `Item.Flag` -- Corresponds to `item.flags`. Items may be considered a match even if their `item.flags` bit mask contains other flags.
+- `"FlagsEqual"`: `Item.Flag` -- Corresponds to `item.flags`. Items will not be considered a match if their `item.flags` bit mask contains other flags.
+- `"ItemId"`: `int` -- Corresponds to `item.info.itemid`.
+- `"MinCondition"`: `float` -- Corresponds to `item.conditionNormalized`.
+- `"RequireEmpty"`: `bool` -- Corresponds to `item.contents.itemList.Count`. While `true`, items with contents (e.g., weapons with attachments) will not match. If an item with contents is stacked, all the items in the stack except one may be considered a match.
+- `"SkinId"`: `ulong` -- Corresponds to `item.skin`.
 
 Caution: Don't supply fields that are not required for a match. For example, if you supply SkinId `0`, then only items with SkinId `0` will be considered a match. 
 
 If none of the fields are provided, all items will be considered a match.
+
+Example code to abstract away dictionary access:
+
+```cs
+private struct ItemQuery
+{
+    public static ItemQuery Parse(Dictionary<string, object> raw)
+    {
+        var itemQuery = new ItemQuery();
+
+        GetOption(raw, "BlueprintId", out itemQuery.BlueprintId);
+        GetOption(raw, "DisplayName", out itemQuery.DisplayName);
+        GetOption(raw, "DataInt", out itemQuery.DataInt);
+        GetOption(raw, "FlagsContain", out itemQuery.FlagsContain);
+        GetOption(raw, "FlagsEqual", out itemQuery.FlagsEqual);
+        GetOption(raw, "ItemId", out itemQuery.ItemId);
+        GetOption(raw, "MinCondition", out itemQuery.MinCondition);
+        GetOption(raw, "RequireEmpty", out itemQuery.RequireEmpty);
+        GetOption(raw, "SkinId", out itemQuery.SkinId);
+
+        return itemQuery;
+    }
+
+    private static void GetOption<T>(Dictionary<string, object> dict, string key, out T result)
+    {
+        object value;
+        result = dict.TryGetValue(key, out value) && value is T
+            ? (T)value
+            : default(T);
+    }
+
+    public int? BlueprintId;
+    public int? DataInt;
+    public string DisplayName;
+    public Item.Flag? FlagsContain;
+    public Item.Flag? FlagsEqual;
+    public int? ItemId;
+    public float MinCondition;
+    public bool RequireEmpty;
+    public ulong? SkinId;
+}
+```
