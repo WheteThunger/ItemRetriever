@@ -476,11 +476,11 @@ namespace Oxide.Plugins
             }
         }
 
-        private void FindContainerItems<T>(ItemContainer container, List<Item> collect, ref T itemQuery) where T : IItemQuery
+        private void FindContainerItems<T>(ItemContainer container, List<Item> collect, ref T itemQuery, bool childItemsOnly = false) where T : IItemQuery
         {
             foreach (var item in container.itemList)
             {
-                var usableAmount = itemQuery.GetUsableAmount(item);
+                var usableAmount = childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
                 if (usableAmount > 0)
                 {
                     collect.Add(item);
@@ -498,7 +498,7 @@ namespace Oxide.Plugins
         {
             FindContainerItems(player.inventory.containerMain, collect, ref itemQuery);
             FindContainerItems(player.inventory.containerBelt, collect, ref itemQuery);
-            FindContainerItems(player.inventory.containerWear, collect, ref itemQuery);
+            FindContainerItems(player.inventory.containerWear, collect, ref itemQuery, childItemsOnly: true);
 
             var containerList = _containerManager.GetContainerList(player);
             if (containerList != null)
@@ -513,13 +513,13 @@ namespace Oxide.Plugins
             }
         }
 
-        private int SumContainerItems<T>(ItemContainer container, ref T itemQuery) where T : IItemQuery
+        private int SumContainerItems<T>(ItemContainer container, ref T itemQuery, bool childItemsOnly = false) where T : IItemQuery
         {
             var sum = 0;
 
             foreach (var item in container.itemList)
             {
-                sum += itemQuery.GetUsableAmount(item);
+                sum += childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
 
                 ItemContainer childContainer;
                 if (HasSearchableContainer(item, out childContainer))
@@ -535,7 +535,7 @@ namespace Oxide.Plugins
         {
             var sum = SumContainerItems(player.inventory.containerMain, ref itemQuery)
                 + SumContainerItems(player.inventory.containerBelt, ref itemQuery)
-                + SumContainerItems(player.inventory.containerWear, ref itemQuery);
+                + SumContainerItems(player.inventory.containerWear, ref itemQuery, childItemsOnly: true);
 
             var containerList = _containerManager.GetContainerList(player);
             if (containerList != null)
@@ -552,7 +552,7 @@ namespace Oxide.Plugins
             return sum;
         }
 
-        private int TakeContainerItems<T>(ItemContainer container, List<Item> collect, ref T itemQuery, int totalAmountToTake) where T : IItemQuery
+        private int TakeContainerItems<T>(ItemContainer container, List<Item> collect, ref T itemQuery, int totalAmountToTake, bool childItemsOnly = false) where T : IItemQuery
         {
             var totalAmountTaken = 0;
 
@@ -563,7 +563,7 @@ namespace Oxide.Plugins
                     break;
 
                 var item = container.itemList[i];
-                var usableAmount = itemQuery.GetUsableAmount(item);
+                var usableAmount = childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
                 if (usableAmount > 0)
                 {
                     amountToTake = Math.Min(item.amount, amountToTake);
@@ -626,7 +626,7 @@ namespace Oxide.Plugins
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += TakeContainerItems(player.inventory.containerWear, collect, ref itemQuery, amountToTake - amountTaken);
+            amountTaken += TakeContainerItems(player.inventory.containerWear, collect, ref itemQuery, amountToTake - amountTaken, childItemsOnly: true);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
