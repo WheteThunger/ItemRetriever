@@ -109,6 +109,8 @@ private void CacheItemRetrieverApi()
 private class ItemRetrieverApi
 {
     // All available API methods are defined here, but you can shorten this list for brevity if you only use select APIs.
+    public Action<Plugin, Dictionary<string, object>> AddSupplier { get; }
+    public Action<Plugin> RemoveSupplier { get; }
     public Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>> AddContainer { get; }
     public Action<Plugin, BasePlayer, ItemContainer> RemoveContainer { get; }
     public Action<Plugin, BasePlayer> RemoveAllContainersForPlayer { get; }
@@ -120,6 +122,8 @@ private class ItemRetrieverApi
 
     public ItemRetrieverApi(Dictionary<string, object> apiDict)
     {
+        AddSupplier = apiDict[nameof(AddSupplier)] as Action<Plugin, Dictionary<string, object>>;
+        RemoveSupplier = apiDict[nameof(RemoveSupplier)] as Action<Plugin>;
         AddContainer = apiDict[nameof(AddContainer)] as Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>;
         RemoveContainer = apiDict[nameof(RemoveContainer)] as Action<Plugin, BasePlayer, ItemContainer>;
         RemoveAllContainersForPlayer = apiDict[nameof(RemoveAllContainersForPlayer)] as Action<Plugin, BasePlayer>;
