@@ -54,6 +54,7 @@ Example:
 private readonly Plugin ItemRetriever;
 
 private ItemRetrieverApi _itemRetrieverApi;
+private Dictionary<string, object> _itemQuery;
 
 // (Hook) When all plugins load, call ItemRetriever to cache its API.
 private void OnServerInitialized()
@@ -87,9 +88,9 @@ private class ItemRetrieverApi
     public Action<Plugin, BasePlayer, ItemContainer> RemoveContainer { get; }
     public Action<Plugin, BasePlayer> RemoveAllContainersForPlayer { get; }
     public Action<Plugin> RemoveAllContainersForPlugin { get; }
-    public Action<BasePlayer, List<Item>, Func<Item, int>> FindPlayerItems { get; }
-    public Func<BasePlayer, Func<Item, int>, int> SumPlayerItems { get; }
-    public Func<BasePlayer, List<Item>, Func<Item, int>, int, int> TakePlayerItems { get; }
+    public Action<BasePlayer, List<Item>, Dictionary<string, object>> FindPlayerItems { get; }
+    public Func<BasePlayer, Dictionary<string, object>, int> SumPlayerItems { get; }
+    public Func<BasePlayer, List<Item>, Dictionary<string, object>, int, int> TakePlayerItems { get; }
     public Action<BasePlayer, List<Item>, AmmoTypes> FindPlayerAmmo { get; }
 
     public ItemRetrieverApi(Dictionary<string, object> apiDict)
@@ -98,69 +99,57 @@ private class ItemRetrieverApi
         RemoveContainer = apiDict[nameof(RemoveContainer)] as Action<Plugin, BasePlayer, ItemContainer>;
         RemoveAllContainersForPlayer = apiDict[nameof(RemoveAllContainersForPlayer)] as Action<Plugin, BasePlayer>;
         RemoveAllContainersForPlugin = apiDict[nameof(RemoveAllContainersForPlugin)] as Action<Plugin>;
-        FindPlayerItems = apiDict[nameof(FindPlayerItems)] as Action<BasePlayer, List<Item>, Func<Item, int>>;
-        SumPlayerItems = apiDict[nameof(SumPlayerItems)] as Func<BasePlayer, Func<Item, int>, int>;
-        TakePlayerItems = apiDict[nameof(TakePlayerItems)] as Func<BasePlayer, List<Item>, Func<Item, int>, int, int>;
+        FindPlayerItems = apiDict[nameof(FindPlayerItems)] as Action<BasePlayer, List<Item>, Dictionary<string, object>>;
+        SumPlayerItems = apiDict[nameof(SumPlayerItems)] as Func<BasePlayer, Dictionary<string, object>, int>;
+        TakePlayerItems = apiDict[nameof(TakePlayerItems)] as Func<BasePlayer, List<Item>, Dictionary<string, object>, int, int>;
         FindPlayerAmmo = apiDict[nameof(FindPlayerAmmo)] as Action<BasePlayer, List<Item>, AmmoTypes>;
-    }
-}
-
-// (Helper class) This abstraction allows you to reuse a delegate to avoid generating garbage.
-private static class UsableItemCounter
-{
-    // These represent the parameters of your item query.
-    private static int _itemId;
-    private static ulong _skinId;
-
-    private static Func<Item, int> _getUsableAmount = item =>
-    {
-        if (item.info.itemid != _itemId)
-            return 0;
-
-        if (_skinId != 0 && item.skin != _skinId)
-            return 0;
-
-        // If an item has contents (e.g., weapon attachment), don't consume the whole stack.
-        if (item.contents?.itemList.Count > 0)
-        {
-            return Math.Max(0, item.amount - 1);
-        }
-
-        return item.amount;
-    };
-
-    // This will update the query parameters and return the cached delegate.
-    public static Func<Item, bool> Get(int itemId, ulong skinId = 0)
-    {
-        _itemId = itemId;
-        _skinId = skinId;
-        return _getUsableAmount;
     }
 }
 
 // (Helper method) When ItemRetriever's API is not available, you'll need a method to find items in the player inventory.
 // If you only need to find items by id (don't need to check skin, blueprint, etc.), then you can use a vanilla method.
-private int SumContainerItems(ItemContainer container, Func<Item, int> getUsableAmount)
+private int SumContainerItems(ItemContainer container, int itemId, ulong skinId = 0)
 {
     var sum = 0;
 
     foreach (var item in container.itemList)
     {
-        sum += getUsableAmount(item);
+        if (item.info.itemid != itemId)
+            continue;
+
+        if (skinId != 0 && item.skin != skinId)
+            continue;
+
+        sum += item.amount;
     }
 
     return sum;
 }
 
+// (Helper method) Create or update your item query. Reuses the dictionary to reduce garbage generation.
+// Recommended to also use an object cache for item ids and skin ids to avoid generating garbage when assigning them to the item query dictionary.
+private Dictionary<string, object> SetupItemQuery(int itemId, ulong skinId = 0)
+{
+    if (_itemQuery == null)
+    {
+        _itemQuery = new Dictionary<string, object>();
+    }
+
+    _itemQuery["ItemId"] = itemId;
+    _itemQuery["SkinId"] = skinId;
+    return _itemQuery;
+}
+
 // (Helper method) Example business logic.
 private int GetPlayerEpicScrapAmount(BasePlayer player)
 {
-    var getUsableAmount = UsableItemCounter.Get(-932201673, 1234567890);
+    var itemId = -932201673;
+    var skinId = 1234567890uL;
 
     // If ItemRetriever is available, call it, else simply find items in the player inventory.
-    return _itemRetrieverApi?.SumPlayerItems?.Invoke(player, getUsableAmount)
-        ?? SumContainerItems(player.inventory.containerMain, getUsableAmount)
-            + SumContainerItems(player.inventory.containerBelt, getUsableAmount);
+    return _itemRetrieverApi?.SumPlayerItems?.Invoke(player, SetupItemQuery(itemId, skinId))
+        ?? SumContainerItems(player.inventory.containerMain, itemId, skinId)
+            + SumContainerItems(player.inventory.containerBelt, itemId, skinId);
 }
 ```
 
@@ -198,29 +187,29 @@ void API_RemoveAllContainersForPlugin(Plugin plugin)
 
 Removes all containers registered by the specified plugin. Note: Plugins **don't** need to call this when they unload because Item Retriever already watches for plugin unload events in order to automatically unregister their containers.
 
-#### FindPlayerItems
+#### API_FindPlayerItems
 
 ```cs
-void FindPlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount)
+void API_FindPlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQuery)
 ```
 
-Searches the player inventory and extra containers, adding all items to the `collect` list for which the `getUsableAmount` delegate returns greater than `0`.
+Searches the player inventory and extra containers, adding all items to the `collect` list for which the `itemQuery` matches.
 
 #### API_SumPlayerItems
 
 ```cs
-int API_SumPlayerItems(BasePlayer player, Func<Item, int> getUsableAmount)
+int API_SumPlayerItems(BasePlayer player, Dictionary<string, object> itemQuery)
 ```
 
-Searches the player inventory and extra containers, calling `getUsableAmount` for all items and returning the sum. This searches the player inventory and extra containers. Note: If `getUsableAmount` returns a negative value, that value is **not** added to the sum.
+Searches the player inventory and extra containers, returning the sum of all items for which the `itemQuery` matches.
 
 #### API_TakePlayerItems
 
 ```cs
-int API_TakePlayerItems(BasePlayer player, List<Item> collect, Func<Item, int> getUsableAmount, int amount)
+int API_TakePlayerItems(BasePlayer player, List<Item> collect, Dictionary<string, object> itemQuery, int amount)
 ```
 
-Searches the player inventory and extra containers, taking `amount` of items for which the `getUsableAmount` delegate returns greater than `0`, optionally adding those items to the `collect` list if non-null. This searches the player inventory and extra containers. 
+Searches the player inventory and extra containers, taking `amount` of items for which the `itemQuery` matches, optionally adding those items to the `collect` list if non-null. 
 
 #### API_FindPlayerAmmo
 
@@ -229,3 +218,19 @@ void API_FindPlayerAmmo(BasePlayer player, List<Item> collect, AmmoTypes ammoTyp
 ```
 
 Searches the player inventory and extra containers, adding all items to the `collect` list that match the specified `ammoType`.
+
+#### Supported Item Query Fields
+
+The `API_FindPlayerItems`, `API_SumPlayerItems` and `API_TakePlayerItems` APIs all accept a `Dictionary<string, object>` item query with the following optional fields.
+
+- `"BlueprintId"`: `int`
+- `"DisplayName"`: `string`
+- `"DataInt"`: `int`
+- `"Flags"`: `int`
+- `"ItemDefinition"`: `ItemDefinition`
+- `"ItemId"`: `int`
+- `"MinCondition"`: `float`
+- `"RequireEmpty"`: `bool`
+- `"SkinId"`: `ulong`
+
+If none of the fields are provided, all items will be considered a match.
