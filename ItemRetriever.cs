@@ -551,7 +551,6 @@ namespace Oxide.Plugins
                     {
                         var itemData = item.Save();
                         itemData.slot = nextInvisibleSlot++;
-
                         containerData.contents.Add(itemData);
                         itemsAdded++;
                     }
@@ -574,6 +573,11 @@ namespace Oxide.Plugins
                 {
                     var itemData = itemList[i];
                     itemData.slot = nextInvisibleSlot++;
+                    if (itemData.UID == 0)
+                    {
+                        // Items that don't have UIDs (fake items) need unique UIDs.
+                        itemData.UID = uint.MaxValue - (uint)nextInvisibleSlot;
+                    }
                     containerData.contents.Add(itemData);
                     itemsAdded++;
 
@@ -1348,11 +1352,10 @@ namespace Oxide.Plugins
                 for (var i = 0; i < containerList.Count; i++)
                 {
                     var containerEntry = containerList[i];
-                    if (!containerEntry.CanUse())
+                    if (!containerEntry.IsValid || !containerEntry.CanUse())
                         continue;
 
-                    itemsAdded += ItemUtils.SerializeForNetwork(containerEntry.Container.itemList, containerData,
-                        ref nextInvisibleSlot);
+                    itemsAdded += ItemUtils.SerializeForNetwork(containerEntry.Container.itemList, containerData, ref nextInvisibleSlot);
                 }
 
                 return itemsAdded;
