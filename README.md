@@ -3,11 +3,11 @@
 - Allows players to build, craft, reload and more using items from external sources
 - Supports building, upgrading, crafting, repairing, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, and unlocking blueprints via the tech tree
 - Supports many plugins that call vanilla functions to find and take items
-- Functions as a middle man between plugins that consume items and plugins that supply items
+- Functions as a router between plugins that consume items and plugins that supply items
 
 ## How it works
 
-If you install this plugin by itself, it will have no effect. This plugin shines when you use other plugins which are compatible with it.
+If you install this plugin by itself, it will have no effect. This plugin is useful when you use other plugins which are compatible with it.
 
 - When the Backpacks plugin is installed, players will be able to build/craft/etc. using the items inside their backpacks.
 - When the Bag of Holding plugin is installed, players will be able to build/craft/etc. using the items inside their bags.
@@ -200,7 +200,7 @@ Supported fields (all optional):
 
 - `"Priority"` -- Determines the priority of the Supplier with respect to other suppliers. Lower numbers are higher priority. Negative numbers are processed before the player inventory is searched. If two Suppliers have equal priority, they will be processed alphabetically according to their plugin name. Default priority is `0`.
 - `"FindPlayerItems"`: `Action<BasePlayer, Dictionary<string, object>, List<Item>>` -- This will be called when a plugin or a vanilla function wants to obtain a list of specific items for a specific player. If you are implementing a plugin which gives players free items that are created on-demand, do not implement this function, since there is no guarantee that the requester will use the items, so implementing this would likely result in items being leaked.
-- `"SumPlayerItems"`: `Func<BasePlayer, Dictionary<string, object>, int>` -- This will be called when a plugin or a vanilla function wants to know if a specific player has sufficient quantity of a specific item. See the section bleow
+- `"SumPlayerItems"`: `Func<BasePlayer, Dictionary<string, object>, int>` -- This will be called when a plugin or a vanilla function wants to know if a specific player has sufficient quantity of a specific item.
 - `"TakePlayerItems"`: `Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int>` -- This will be called when a plugin or a vanilla function has already determined that a specific player has sufficient quantity of a specific item, and now wants to take those items.
 - `"FindPlayerAmmo"`: `Action<BasePlayer, AmmoTypes, List<Item>>` -- This will be called when a plugin or a vanilla function wants to locate all ammo items matching a specific type for a specific player.
 - `"SerializeForNetwork"`: `Action<BasePlayer, List<ProtoBuf.Item>>` -- This will be called when a plugin or a vanilla function wants to send a snapshot of the player's inventory to them. When you implement this hook and add items to the provided list, those items will be included in the snapshot sent to the player, causing that player's game client to think it has those items, even though they are not visible in the inventory.
