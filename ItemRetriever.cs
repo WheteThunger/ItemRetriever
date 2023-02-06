@@ -123,12 +123,10 @@ namespace Oxide.Plugins
                 return null;
 
             _callingCanCraft = true;
-
             var canCraftResult = Interface.CallHook("CanCraft", itemCrafter, blueprint, ObjectCache.Get(amount), BooleanNoAlloc(free));
+            _callingCanCraft = false;
             if (canCraftResult != null)
                 return null;
-
-            _callingCanCraft = false;
 
             var basePlayer = itemCrafter.baseEntity;
 
