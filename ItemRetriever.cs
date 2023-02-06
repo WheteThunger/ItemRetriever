@@ -26,7 +26,7 @@ namespace Oxide.Plugins
         private readonly SupplierManager _supplierManager = new SupplierManager();
         private readonly ContainerManager _containerManager = new ContainerManager();
         private readonly ApiInstance _api;
-
+        private readonly Dictionary<int, int> _overridenIngredients = new Dictionary<int, int>();
         private bool _callingCanCraft;
 
         public ItemRetriever()
@@ -94,12 +94,28 @@ namespace Oxide.Plugins
 
         private object OnIngredientsCollect(ItemCrafter itemCrafter, ItemBlueprint blueprint, ItemCraftTask task, int amount, BasePlayer player)
         {
+            ExposedHooks.OnIngredientsDetermine(_overridenIngredients, blueprint, amount, player);
+
             var collect = new List<Item>();
-            for (var i = 0; i < blueprint.ingredients.Count; i++)
+            if (_overridenIngredients.Count > 0)
             {
-                var ingredient = blueprint.ingredients[i];
-                var itemQuery = new ItemIdQuery(ingredient.itemid);
-                TakePlayerItems(player, ref itemQuery, (int)ingredient.amount * amount, collect);
+                foreach (var entry in _overridenIngredients)
+                {
+                    if (entry.Value <= 0)
+                        continue;
+
+                    var itemQuery = new ItemIdQuery(entry.Key);
+                    TakePlayerItems(player, ref itemQuery, entry.Value, collect);
+                }
+            }
+            else
+            {
+                for (var i = 0; i < blueprint.ingredients.Count; i++)
+                {
+                    var ingredient = blueprint.ingredients[i];
+                    var itemQuery = new ItemIdQuery(ingredient.itemid);
+                    TakePlayerItems(player, ref itemQuery, (int)ingredient.amount * amount, collect);
+                }
             }
 
             task.potentialOwners = new List<ulong>();
@@ -130,12 +146,29 @@ namespace Oxide.Plugins
 
             var basePlayer = itemCrafter.baseEntity;
 
-            for (var i = 0; i < blueprint.ingredients.Count; i++)
+            ExposedHooks.OnIngredientsDetermine(_overridenIngredients, blueprint, amount, basePlayer);
+
+            if (_overridenIngredients.Count > 0)
             {
-                var ingredient = blueprint.ingredients[i];
-                var itemQuery = new ItemIdQuery(ingredient.itemid);
-                if (SumPlayerItems(basePlayer, ref itemQuery) < ingredient.amount * amount)
-                    return null;
+                foreach (var entry in _overridenIngredients)
+                {
+                    if (entry.Value <= 0)
+                        continue;
+
+                    var itemQuery = new ItemIdQuery(entry.Key);
+                    if (SumPlayerItems(basePlayer, ref itemQuery) < entry.Value)
+                        return False;
+                }
+            }
+            else
+            {
+                for (var i = 0; i < blueprint.ingredients.Count; i++)
+                {
+                    var ingredient = blueprint.ingredients[i];
+                    var itemQuery = new ItemIdQuery(ingredient.itemid);
+                    if (SumPlayerItems(basePlayer, ref itemQuery) < ingredient.amount * amount)
+                        return False;
+                }
             }
 
             return True;
@@ -368,6 +401,19 @@ namespace Oxide.Plugins
         public void API_FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
         {
             _api.FindPlayerAmmo(player, ammoType, collect);
+        }
+
+        #endregion
+
+        #region Exposed Hooks
+
+        private static class ExposedHooks
+        {
+            public static void OnIngredientsDetermine(Dictionary<int, int> overridenIngredients, ItemBlueprint blueprint, int amount, BasePlayer player)
+            {
+                overridenIngredients.Clear();
+                Interface.CallHook("OnIngredientsDetermine", overridenIngredients, blueprint, ObjectCache.Get(amount), player);
+            }
         }
 
         #endregion

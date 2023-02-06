@@ -407,3 +407,19 @@ private struct ItemQuery
     public ulong? SkinId;
 }
 ```
+
+## Developer Hooks
+
+### OnIngredientsDetermine
+
+```cs
+void OnIngredientsDetermine(Dictionary<int, int> overridenIngredients, ItemBlueprint blueprint, int amount, BasePlayer player)
+```
+
+Called when the `CanCraft` and `OnIngredientsCollect` hooks are called. Other plugins can use this to alter the crafting recipe. After calling this hook, if the `overridenIngredients` dictionary is non-empty (`overridenIngredients.Count` > 0), Item Retriever will use the ingredients defined therein (for `CanCraft`, it will count the ingredients; for `OnIngredientsCollect`, it will collect the ingredients). The dictionary keys are the item ids of the ingredients, and the dictionary values are the total amounts of those ingredients required (base amount times craft amount). Multiple other plugins can use this hook at the same time, in order to apply multiple independent discounts.
+
+How to use this hook:
+
+- In the `CanCraft` and `OnIngredientsCollect`, return `null` when ItemRetriever is loaded.
+- In the `OnIngredientsDetermine` hook, if the dictionary is non-empty, that means another plugin is using this hook and altered the ingredients, so simply apply changes to the ingredient values already present. If necessary, you can add new ingredients, but that is not recommended because plugins that already handled this hook will not get an opportunity to change the values.
+- In the `OnIngredientsDetermine` hook, if the dictionary is empty, populate it with your preferred ingredients, which are ideally the vanilla blueprint ingredients with altered amounts. Make sure to provide the totals, with craft amount factored in.
