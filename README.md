@@ -25,15 +25,6 @@ If you install this plugin by itself, it will have no effect. This plugin is use
 
 In addition to explicit Item Suppliers and Container Suppliers, plugins that store items inside other items, such as Bag of Holding, automatically function as compatible Item Suppliers.
 
-## Permissions
-
-- `itemretriever.admin` -- Allows using the demonstration commands documented below.
-
-## Commands
-
-- `retriever.add` -- Adds the container you are looking at to your registered containers.
-- `retriever.remove` -- Removes the container you are looking at from your registered containers.
-
 ## Incompatible plugins
 
 Any plugin which reduces the player inventory space to less than 24 is not compatible. For example, Clothing Slots.

@@ -1,11 +1,8 @@
 ﻿using Oxide.Core;
 using Oxide.Core.Plugins;
-using Oxide.Core.Libraries.Covalence;
 using Rust;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using UnityEngine;
 
 namespace Oxide.Plugins
 {
@@ -17,8 +14,6 @@ namespace Oxide.Plugins
 
         private const int InventorySize = 24;
         private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 24);
-
-        private const string PermissionAdmin = "itemretriever.admin";
 
         private static readonly object True = true;
         private static readonly object False = false;
@@ -172,62 +167,6 @@ namespace Oxide.Plugins
             }
 
             return True;
-        }
-
-        #endregion
-
-        #region Commands
-
-        [Command("retriever.add"), Permission(PermissionAdmin)]
-        private void CommandAddContainer(IPlayer player, string cmd, string[] args)
-        {
-            BasePlayer basePlayer;
-            if (!VerifyIsPlayer(player, out basePlayer))
-                return;
-
-            RaycastHit hit;
-            if (!Physics.Raycast(basePlayer.eyes.HeadRay(), out hit, 9, Rust.Layers.Solid, QueryTriggerInteraction.Ignore))
-            {
-                player.Reply($"No raycast hit.");
-                return;
-            }
-
-            var containerEntity = hit.GetEntity() as IItemContainerEntity;
-            if (containerEntity == null)
-            {
-                player.Reply($"No container entity found.");
-                return;
-            }
-
-            _containerManager.AddContainer(this, basePlayer, containerEntity, containerEntity.inventory);
-            SendInventoryUpdate(basePlayer);
-            player.Reply($"Successfully added container.");
-        }
-
-        [Command("retriever.remove"), Permission(PermissionAdmin)]
-        private void CommandRemoveContainer(IPlayer player, string cmd, string[] args)
-        {
-            BasePlayer basePlayer;
-            if (!VerifyIsPlayer(player, out basePlayer))
-                return;
-
-            RaycastHit hit;
-            if (!Physics.Raycast(basePlayer.eyes.HeadRay(), out hit, 9, Rust.Layers.Solid, QueryTriggerInteraction.Ignore))
-            {
-                player.Reply($"No raycast hit.");
-                return;
-            }
-
-            var containerEntity = hit.GetEntity() as IItemContainerEntity;
-            if (containerEntity == null)
-            {
-                player.Reply($"No container entity found.");
-                return;
-            }
-
-            _containerManager.RemoveContainer(this, basePlayer, containerEntity.inventory);
-            SendInventoryUpdate(basePlayer);
-            player.Reply($"Successfully removed container.");
         }
 
         #endregion
@@ -423,18 +362,6 @@ namespace Oxide.Plugins
         private static void SendInventoryUpdate(BasePlayer player)
         {
             player.inventory.SendUpdatedInventory(PlayerInventory.Type.Main, player.inventory.containerMain);
-        }
-
-        private static bool VerifyIsPlayer(IPlayer player, out BasePlayer basePlayer)
-        {
-            if (player.IsServer)
-            {
-                basePlayer = null;
-                return false;
-            }
-
-            basePlayer = player.Object as BasePlayer;
-            return true;
         }
 
         private static int GetHighestUsedSlot(ProtoBuf.ItemContainer containerData)
