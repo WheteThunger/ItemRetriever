@@ -300,14 +300,14 @@ namespace Oxide.Plugins
             _api.AddContainer(plugin, player, containerEntity, container, canUseContainer);
         }
 
-        [HookMethod(nameof(API_RemoveAllContainersForPlayer))]
-        public void API_RemoveAllContainersForPlayer(Plugin plugin, BasePlayer player, ItemContainer container)
+        [HookMethod(nameof(API_RemoveContainer))]
+        public void API_RemoveContainer(Plugin plugin, BasePlayer player, ItemContainer container)
         {
             _api.RemoveContainer(plugin, player, container);
         }
 
-        [HookMethod(nameof(API_RemoveContainers))]
-        public void API_RemoveContainers(Plugin plugin, BasePlayer player)
+        [HookMethod(nameof(API_RemoveAllContainersForPlayer))]
+        public void API_RemoveAllContainersForPlayer(Plugin plugin, BasePlayer player)
         {
             _api.RemoveAllContainersForPlayer(plugin, player);
         }
