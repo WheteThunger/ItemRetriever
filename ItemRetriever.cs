@@ -189,6 +189,7 @@ namespace Oxide.Plugins
                 {
                     [nameof(AddSupplier)] = new Action<Plugin, Dictionary<string, object>>(AddSupplier),
                     [nameof(RemoveSupplier)] = new Action<Plugin>(RemoveSupplier),
+                    [nameof(HasContainer)] = new Func<BasePlayer, ItemContainer, bool>(HasContainer),
                     [nameof(AddContainer)] = new Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>>(AddContainer),
                     [nameof(RemoveContainer)] = new Action<Plugin, BasePlayer, ItemContainer>(RemoveContainer),
                     [nameof(RemoveAllContainersForPlayer)] = new Action<Plugin, BasePlayer>(RemoveAllContainersForPlayer),
@@ -216,7 +217,12 @@ namespace Oxide.Plugins
                 _supplierManager.RemoveSupplier(plugin);
             }
 
-            public void AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)
+            public bool HasContainer(BasePlayer player, ItemContainer container)
+            {
+                return _containerManager.HasContainer(player, container);
+            }
+
+            public void AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer)
             {
                 if (_containerManager.AddContainer(plugin, player, containerEntity, container, canUseContainer))
                 {
@@ -292,6 +298,12 @@ namespace Oxide.Plugins
         public void API_RemoveSupplier(Plugin plugin)
         {
             _api.RemoveSupplier(plugin);
+        }
+
+        [HookMethod(nameof(API_HasContainer))]
+        public object API_HasContainer(BasePlayer player, ItemContainer container)
+        {
+            return ObjectCache.Get(_api.HasContainer(player, container));
         }
 
         [HookMethod(nameof(API_AddContainer))]
@@ -1185,6 +1197,12 @@ namespace Oxide.Plugins
             public void UnregisterEntity(BaseEntity entity)
             {
                 _entityTrackers.Remove(entity);
+            }
+
+            public bool HasContainer(BasePlayer player, ItemContainer container)
+            {
+                var containerList = GetContainerList(player);
+                return containerList != null && HasContainer(containerList, container);
             }
 
             public bool AddContainer(Plugin plugin, BasePlayer player, IItemContainerEntity containerEntity, ItemContainer container, Func<Plugin, BasePlayer, ItemContainer, bool> canUseContainer = null)

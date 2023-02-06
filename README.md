@@ -102,6 +102,7 @@ private class ItemRetrieverApi
     // All available API methods are defined here, but you can shorten this list for brevity if you only use select APIs.
     public Action<Plugin, Dictionary<string, object>> AddSupplier { get; }
     public Action<Plugin> RemoveSupplier { get; }
+    public Func<BasePlayer, ItemContainer, bool> HasContainer { get; }
     public Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>> AddContainer { get; }
     public Action<Plugin, BasePlayer, ItemContainer> RemoveContainer { get; }
     public Action<Plugin, BasePlayer> RemoveAllContainersForPlayer { get; }
@@ -115,6 +116,7 @@ private class ItemRetrieverApi
     {
         AddSupplier = apiDict[nameof(AddSupplier)] as Action<Plugin, Dictionary<string, object>>;
         RemoveSupplier = apiDict[nameof(RemoveSupplier)] as Action<Plugin>;
+        HasContainer = apiDict[nameof(HasContainer)] as Func<BasePlayer, ItemContainer, bool>;
         AddContainer = apiDict[nameof(AddContainer)] as Action<Plugin, BasePlayer, IItemContainerEntity, ItemContainer, Func<Plugin, BasePlayer, ItemContainer, bool>;
         RemoveContainer = apiDict[nameof(RemoveContainer)] as Action<Plugin, BasePlayer, ItemContainer>;
         RemoveAllContainersForPlayer = apiDict[nameof(RemoveAllContainersForPlayer)] as Action<Plugin, BasePlayer>;
@@ -272,6 +274,14 @@ void API_RemoveSupplier(Plugin plugin)
 Removes the specified item supplier. Once a supplier has been removed, players will no longer be able to access that supplier's items. Existing players may temporarily have stale inventory snapshots that indicate those items are still available, but that will automatically resolve itself when the player's inventory next changes.
 
 Note: It's not necessary to call this when your plugin unloads because Item Retriever will detect your plugin unloading and will unregister it automatically.
+
+#### API_HasContainer
+
+```cs
+bool API_HasContainer(BasePlayer player, ItemContainer container)
+```
+
+Returns `true` if the specified player has the specified container associated with them, else returns `false`.
 
 #### API_AddContainer
 
