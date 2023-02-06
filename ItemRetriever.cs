@@ -1093,6 +1093,8 @@ namespace Oxide.Plugins
                 if (!_containerList.Remove(containerEntry))
                     return;
 
+                MarkInventoryDirty(containerEntry.Player);
+
                 if (_containerList.Count == 0 && _entity != null && !_entity.IsDestroyed)
                 {
                     DestroyImmediate(this);
@@ -1101,17 +1103,9 @@ namespace Oxide.Plugins
 
             private void OnDestroy()
             {
-                var entityDestroyed = _entity == null || _entity.IsDestroyed;
-
                 for (var i = _containerList.Count - 1; i >= 0; i--)
                 {
-                    var containerEntry = _containerList[i];
-                    _containerManager.RemoveContainer(containerEntry);
-
-                    if (entityDestroyed)
-                    {
-                        MarkInventoryDirty(containerEntry.Player);
-                    }
+                    _containerManager.RemoveContainer(_containerList[i]);
                 }
 
                 _containerManager.UnregisterEntity(_entity);
