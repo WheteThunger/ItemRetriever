@@ -23,11 +23,11 @@ namespace Oxide.Plugins
         private static readonly object True = true;
         private static readonly object False = false;
 
-        private SupplierManager _supplierManager = new SupplierManager();
-        private ContainerManager _containerManager = new ContainerManager();
+        private readonly SupplierManager _supplierManager = new SupplierManager();
+        private readonly ContainerManager _containerManager = new ContainerManager();
         private readonly ApiInstance _api;
 
-        private bool _callingCanCraft = false;
+        private bool _callingCanCraft;
 
         public ItemRetriever()
         {
@@ -123,7 +123,7 @@ namespace Oxide.Plugins
                 return null;
 
             _callingCanCraft = true;
-            var canCraftResult = Interface.CallHook("CanCraft", itemCrafter, blueprint, ObjectCache.Get(amount), BooleanNoAlloc(free));
+            var canCraftResult = Interface.CallHook("CanCraft", itemCrafter, blueprint, ObjectCache.Get(amount), ObjectCache.Get(free));
             _callingCanCraft = false;
             if (canCraftResult != null)
                 return null;
@@ -374,11 +374,6 @@ namespace Oxide.Plugins
 
         #region Helper Methods
 
-        private static object BooleanNoAlloc(bool value)
-        {
-            return value ? True : False;
-        }
-
         private static void SendInventoryUpdate(BasePlayer player)
         {
             player.inventory.SendUpdatedInventory(PlayerInventory.Type.Main, player.inventory.containerMain);
@@ -495,11 +490,8 @@ namespace Oxide.Plugins
 
         private static class StringUtils
         {
-            public static bool Equals(string a, string b) =>
+            public static bool EqualsIgnoreCase(string a, string b) =>
                 string.Compare(a, b, StringComparison.OrdinalIgnoreCase) == 0;
-
-            public static bool Contains(string haystack, string needle) =>
-                haystack.Contains(needle, CompareOptions.IgnoreCase);
         }
 
         private static class ObjectCache
@@ -528,6 +520,11 @@ namespace Oxide.Plugins
             public static object Get<T>(T value)
             {
                 return StaticObjectCache<T>.Get(value);
+            }
+
+            public static object Get(bool value)
+            {
+                return value ? True : False;
             }
 
             public static void Clear<T>()
@@ -841,7 +838,7 @@ namespace Oxide.Plugins
                 if (MinCondition > 0 && HasCondition() && (item.conditionNormalized < MinCondition || item.maxConditionNormalized < MinCondition))
                     return 0;
 
-                if (!string.IsNullOrEmpty(DisplayName) && !StringUtils.Equals(DisplayName, item.name))
+                if (!string.IsNullOrEmpty(DisplayName) && !StringUtils.EqualsIgnoreCase(DisplayName, item.name))
                     return 0;
 
                 return RequireEmpty && item.contents?.itemList?.Count > 0
