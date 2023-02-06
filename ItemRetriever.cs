@@ -16,6 +16,7 @@ namespace Oxide.Plugins
         #region Fields
 
         private const int InventorySize = 24;
+        private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 24);
 
         private const string PermissionAdmin = "itemretriever.admin";
 
@@ -727,13 +728,13 @@ namespace Oxide.Plugins
             private static bool HasSearchableContainer(Item item, out List<Item> itemList)
             {
                 itemList = item.contents?.itemList;
-                return itemList?.Count > 0 && HasSearchableContainer(item.info);
+                return itemList?.Count > 0 && !item.HasFlag(UnsearchableItemFlag) && HasSearchableContainer(item.info);
             }
 
             private static bool HasSearchableContainer(ProtoBuf.Item itemData, out List<ProtoBuf.Item> itemList)
             {
                 itemList = itemData.contents?.contents;
-                return itemList?.Count > 0 && HasSearchableContainer(itemData.itemid);
+                return itemList?.Count > 0 && !((Item.Flag)itemData.flags).HasFlag(UnsearchableItemFlag) && HasSearchableContainer(itemData.itemid);
             }
         }
 
