@@ -220,7 +220,7 @@ namespace Oxide.Plugins
             {
                 if (_containerManager.AddContainer(plugin, player, containerEntity, container, canUseContainer))
                 {
-                    SendInventoryUpdate(player);
+                    MarkInventoryDirty(player);
                 }
             }
 
@@ -228,7 +228,7 @@ namespace Oxide.Plugins
             {
                 if (_containerManager.RemoveContainer(plugin, player, container))
                 {
-                    SendInventoryUpdate(player);
+                    MarkInventoryDirty(player);
                 }
             }
 
@@ -236,7 +236,7 @@ namespace Oxide.Plugins
             {
                 if (_containerManager.RemoveContainers(plugin, player))
                 {
-                    SendInventoryUpdate(player);
+                    MarkInventoryDirty(player);
                 }
             }
 
@@ -247,7 +247,7 @@ namespace Oxide.Plugins
                 {
                     foreach (var player in updatedPlayers)
                     {
-                        SendInventoryUpdate(player);
+                        MarkInventoryDirty(player);
                     }
                 }
             }
@@ -359,9 +359,9 @@ namespace Oxide.Plugins
 
         #region Helper Methods
 
-        private static void SendInventoryUpdate(BasePlayer player)
+        private static void MarkInventoryDirty(BasePlayer player)
         {
-            player.inventory.SendUpdatedInventory(PlayerInventory.Type.Main, player.inventory.containerMain);
+            player.inventory.containerMain?.MarkDirty();
         }
 
         private static int GetHighestUsedSlot(ProtoBuf.ItemContainer containerData)
@@ -1098,7 +1098,7 @@ namespace Oxide.Plugins
 
                     if (entityDestroyed)
                     {
-                        SendInventoryUpdate(containerEntry.Player);
+                        MarkInventoryDirty(containerEntry.Player);
                     }
                 }
 
