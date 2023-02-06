@@ -1119,8 +1119,16 @@ namespace Oxide.Plugins
             public EntityTracker EntityTracker;
             public ItemContainer Container;
             public Func<Plugin, BasePlayer, ItemContainer, bool> CanUseContainer;
+            private Action _handleDirty;
 
             public bool IsValid => Container?.itemList != null;
+
+            public void Activate()
+            {
+                var player = Player;
+                _handleDirty = () => MarkInventoryDirty(player);
+                Container.onDirty += _handleDirty;
+            }
 
             public void Deactivate()
             {
@@ -1128,6 +1136,8 @@ namespace Oxide.Plugins
                 {
                     EntityTracker.RemoveContainer(this);
                 }
+
+                Container.onDirty -= _handleDirty;
             }
 
             public bool CanUse()
@@ -1218,6 +1228,8 @@ namespace Oxide.Plugins
                     Container = container,
                     CanUseContainer = canUseContainer,
                 };
+
+                containerEntry.Activate();
 
                 var entity = containerEntity as BaseEntity;
                 if ((object)entity != null)
