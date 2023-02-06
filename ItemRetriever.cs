@@ -1250,20 +1250,18 @@ namespace Oxide.Plugins
 
             public bool RemoveContainer(Plugin plugin, BasePlayer player, ItemContainer container)
             {
-                var anyRemoved = false;
-
                 var containerList = GetContainerList(player);
-                if (containerList != null)
-                {
-                    anyRemoved |= RemoveEntry(containerList, plugin, player, container);
-                }
+                if (containerList == null)
+                    return false;
+
+                var removed = RemoveEntry(containerList, plugin, player, container);
 
                 if (containerList.Count == 0)
                 {
                     _playerContainerEntries.Remove(player.userID);
                 }
 
-                return anyRemoved;
+                return removed;
             }
 
             public bool RemoveContainer(ContainerEntry containerEntry)
