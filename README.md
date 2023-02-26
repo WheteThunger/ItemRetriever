@@ -19,7 +19,7 @@ If you install this plugin by itself, it will have no effect. This plugin is use
   - Example vanilla functions: Building, upgrading, crafting, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, unlocking blueprints via the tech tree
   - Example plugins: [Custom Vending Setup](https://umod.org/plugins/custom-vending-setup) 
 - **Item Suppliers** -- Any plugin that hooks into Item Retriever to provide items on-demand for Item Consumers. Allows loading or creating items on-demand.
-  - Example plugins: [Backpacks](https://umod.org/plugins/backpacks), Virtual Items
+  - Example plugins: [Backpacks](https://umod.org/plugins/backpacks), [Virtual Items](https://umod.org/plugins/virtual-items)
 - **Container Suppliers** -- Any plugin that registers containers with Item Retriever. Item Retriever will search those containers on-demand for Item Consumers. For example, a plugin could add a UI button to storage containers, allowing players to individually toggle whether they can remotely utilize the contents of those containers.
   - Example plugins: None at this time.
 
