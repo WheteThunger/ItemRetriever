@@ -9,9 +9,9 @@
 
 If you install this plugin by itself, it will have no effect. This plugin is useful when you use other plugins which are compatible with it.
 
-- When the Backpacks plugin is installed, players will be able to build/craft/etc. using the items inside their backpacks.
+- When the [Backpacks](https://umod.org/plugins/backpacks) plugin is installed, players will be able to build/craft/etc. using the items from inside their backpacks, if they have the `backpacks.retrieve` permission and if they have toggled on Retrieve mode (which is a per-backpack-page setting).
 - When the Bag of Holding plugin is installed, players will be able to build/craft/etc. using the items inside their bags.
-- When the Virtual Items plugin is installed, players will be able to build/craft/etc. using no items at all.
+- When the [Virtual Items](https://umod.org/plugins/virtual-items) plugin is installed, players will be able to build/craft/etc. using no items at all, according to the configuration and permissions in that plugin.
 
 ### Concepts
 
