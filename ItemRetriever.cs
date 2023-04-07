@@ -3,10 +3,11 @@ using Oxide.Core.Plugins;
 using Rust;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.5.0")]
+    [Info("Item Retriever", "WhiteThunder", "0.6.0")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -22,6 +23,7 @@ namespace Oxide.Plugins
         private readonly ContainerManager _containerManager = new ContainerManager();
         private readonly ApiInstance _api;
         private readonly Dictionary<int, int> _overridenIngredients = new Dictionary<int, int>();
+        private readonly List<Item> _reusableItemList = new List<Item>();
         private bool _callingCanCraft;
 
         public ItemRetriever()
@@ -85,6 +87,17 @@ namespace Oxide.Plugins
         {
             FindPlayerAmmo(inventory.baseEntity, ammoType, collect);
             return False;
+        }
+
+        private Item OnInventoryAmmoItemFind(PlayerInventory inventory, ItemDefinition itemDefinition)
+        {
+            if ((object)itemDefinition == null)
+                return null;
+
+            _reusableItemList.Clear();
+            var itemQuery = new ItemIdQuery(itemDefinition.itemid);
+            FindPlayerItems(inventory.baseEntity, ref itemQuery, _reusableItemList);
+            return _reusableItemList.FirstOrDefault();
         }
 
         private object OnIngredientsCollect(ItemCrafter itemCrafter, ItemBlueprint blueprint, ItemCraftTask task, int amount, BasePlayer player)
