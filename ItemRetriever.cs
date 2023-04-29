@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.6.0")]
+    [Info("Item Retriever", "WhiteThunder", "0.6.1")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -571,10 +571,10 @@ namespace Oxide.Plugins
                 {
                     var itemData = itemList[i];
                     itemData.slot = nextInvisibleSlot++;
-                    if (itemData.UID == 0)
+                    if (itemData.UID.Value == 0)
                     {
                         // Items that don't have UIDs (fake items) need unique UIDs.
-                        itemData.UID = uint.MaxValue - (uint)nextInvisibleSlot;
+                        itemData.UID = new ItemId(ulong.MaxValue - (ulong)nextInvisibleSlot);
                     }
                     containerData.contents.Add(itemData);
                     itemsAdded++;
