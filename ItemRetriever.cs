@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.6.1")]
+    [Info("Item Retriever", "WhiteThunder", "0.6.2")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -430,6 +430,7 @@ namespace Oxide.Plugins
 
         private void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
         {
+            _supplierManager.FindPlayerItems(player, ref itemQuery, collect, beforeInventory: true);
             ItemUtils.FindItems(player.inventory.containerMain.itemList, ref itemQuery, collect);
             ItemUtils.FindItems(player.inventory.containerBelt.itemList, ref itemQuery, collect);
             ItemUtils.FindItems(player.inventory.containerWear.itemList, ref itemQuery, collect, childItemsOnly: true);
@@ -475,6 +476,7 @@ namespace Oxide.Plugins
 
         private void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect)
         {
+            _supplierManager.FindPlayerAmmo(player, ammoType, collect, beforeInventory: true);
             player.inventory.containerMain?.FindAmmo(collect, ammoType);
             player.inventory.containerBelt?.FindAmmo(collect, ammoType);
             player.inventory.containerWear?.FindAmmo(collect, ammoType);
@@ -1018,16 +1020,17 @@ namespace Oxide.Plugins
                 return itemsAdded;
             }
 
-            public void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
+            public void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect, bool beforeInventory = false) where T : IItemQuery
             {
-                if (_allSuppliers.Count == 0)
+                var suppliers = beforeInventory ? _beforeInventorySuppliers : _afterInventorySuppliers;
+                if (suppliers.Count == 0)
                     return;
 
                 itemQuery.PopulateItemQuery(_reusableItemQuery);
 
-                for (var i = 0; i < _allSuppliers.Count; i++)
+                for (var i = 0; i < suppliers.Count; i++)
                 {
-                    _allSuppliers[i].FindPlayerItems?.Invoke(player, _reusableItemQuery, collect);
+                    suppliers[i].FindPlayerItems?.Invoke(player, _reusableItemQuery, collect);
                 }
             }
 
@@ -1071,9 +1074,13 @@ namespace Oxide.Plugins
 
             public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect, bool beforeInventory = false)
             {
-                for (var i = 0; i < _allSuppliers.Count; i++)
+                var suppliers = beforeInventory ? _beforeInventorySuppliers : _afterInventorySuppliers;
+                if (suppliers.Count == 0)
+                    return;
+
+                for (var i = 0; i < suppliers.Count; i++)
                 {
-                    _allSuppliers[i].FindPlayerAmmo?.Invoke(player, ammoType, collect);
+                    suppliers[i].FindPlayerAmmo?.Invoke(player, ammoType, collect);
                 }
             }
         }
