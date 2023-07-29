@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.6.2")]
+    [Info("Item Retriever", "WhiteThunder", "0.6.3")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -126,15 +126,9 @@ namespace Oxide.Plugins
                 }
             }
 
-            task.potentialOwners = new List<ulong>();
-
             for (var i = 0; i < collect.Count; i++)
             {
                 collect[i].CollectedForCrafting(player);
-                if (!task.potentialOwners.Contains(player.userID))
-                {
-                    task.potentialOwners.Add(player.userID);
-                }
             }
 
             task.takenItems = collect;
