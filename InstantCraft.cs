@@ -1,5 +1,6 @@
 using Newtonsoft.Json;
 using System.Collections.Generic;
+using Oxide.Core.Plugins;
 using Oxide.Core;
 using UnityEngine;
 using System.Linq;
@@ -14,6 +15,8 @@ namespace Oxide.Plugins
         #region Vars
         private const string permUse = "instantcraft.use";
         private const string permNormal = "instantcraft.normal";
+        private readonly object True = true;
+        private readonly object False = false;
         #endregion
 
         #region Oxide Hooks
@@ -21,6 +24,24 @@ namespace Oxide.Plugins
         {
             permission.RegisterPermission(permUse, this);
             permission.RegisterPermission(permNormal, this);
+
+            _config.Init(this);
+
+            if (!_config.HasAnyBlockedItems)
+            {
+                Unsubscribe(nameof(CanCraft));
+            }
+        }
+
+        private object CanCraft(ItemCrafter itemCrafter, ItemBlueprint blueprint, int amount, bool free)
+        {
+            if (_config.IsBlocked(blueprint.targetItem))
+            {
+                Message(itemCrafter.baseEntity, "Blocked");
+                return False;
+            }
+
+            return null;
         }
 
         private object OnItemCraft(ItemCraftTask task, BasePlayer owner)
@@ -35,21 +56,15 @@ namespace Oxide.Plugins
                 return null;
             }
 
-            if (_config.IsBlocked(task))
-            {
-                CancelTask(task, owner, "Blocked");
-                return false;
-            }
-
             List<int> stacks = GetStacks(task.blueprint.targetItem, task.amount * task.blueprint.amountToCreate);
             int slots = FreeSlots(owner);
             if (!HasPlace(slots, stacks))
             {
                 CancelTask(task, owner, "Slots", stacks.Count, slots);
-                return false;
+                return False;
             }
 
-            if (_config.IsNormal(task))
+            if (_config.IsNormal(task.blueprint.targetItem))
             {
                 Message(owner, "Normal");
                 return null;
@@ -60,8 +75,24 @@ namespace Oxide.Plugins
                 return null;
             }
 
-            return true;
+            return True;
         }
+        #endregion
+
+        #region API
+
+        [HookMethod(nameof(API_IsItemBlocked))]
+        public bool API_IsItemBlocked(ItemDefinition itemDefinition)
+        {
+            return _config.IsBlocked(itemDefinition);
+        }
+
+        [HookMethod(nameof(API_GetIsItemBlockedCallback))]
+        public Func<ItemDefinition, bool> API_GetIsItemBlockedCallback()
+        {
+            return itemDefinition => _config.IsBlocked(itemDefinition);
+        }
+
         #endregion
 
         #region Helpers
@@ -172,7 +203,7 @@ namespace Oxide.Plugins
             return slots - taken;
         }
 
-        public List<int> GetStacks(ItemDefinition item, int amount) 
+        public List<int> GetStacks(ItemDefinition item, int amount)
         {
             var list = new List<int>();
             var maxStack = item.stackable;
@@ -187,9 +218,9 @@ namespace Oxide.Plugins
                 amount -= maxStack;
                 list.Add(maxStack);
             }
-            
+
             list.Add(amount);
-            
+
             return list; 
         }
 
@@ -236,33 +267,63 @@ namespace Oxide.Plugins
             return string.Format(lang.GetMessage(messageKey, this, playerID), args);
         }
         #endregion
-        
+
         #region Configuration 1.1.0
         private Configuration _config;
         private class Configuration
         {
             [JsonProperty(PropertyName = "Check for free place")]
             public bool checkPlace = true;
-            
+
             [JsonProperty(PropertyName = "Split crafted stacks")]
             public bool split = true;
-            
+
             [JsonProperty(PropertyName = "Normal Speed")]
-            public string[] normal =
+            private string[] normal =
             {
                 "hammer",
                 "put item shortname here"
             };
 
             [JsonProperty(PropertyName = "Blacklist")]
-            public string[] blocked =
+            private string[] blocked =
             {
                 "rock",
                 "put item shortname here"
             };
 
-            public bool IsNormal(ItemCraftTask task) => normal?.Contains(task.blueprint.targetItem.shortname) ?? false;
-            public bool IsBlocked(ItemCraftTask task) => blocked?.Contains(task.blueprint.targetItem.shortname) ?? false;
+            private HashSet<int> _normalCraftItemIds = new HashSet<int>();
+            private HashSet<int> _blockedItemIds = new HashSet<int>();
+
+            [JsonIgnore]
+            public bool HasAnyBlockedItems => _blockedItemIds.Count > 0;
+
+            public void Init(InstantCraft plugin)
+            {
+                ValidateItemShortNames(plugin, normal, _normalCraftItemIds);
+                ValidateItemShortNames(plugin, blocked, _blockedItemIds);
+            }
+
+            public bool IsNormal(ItemDefinition itemDefinition) => _normalCraftItemIds.Contains(itemDefinition.itemid);
+            public bool IsBlocked(ItemDefinition itemDefinition) => _blockedItemIds.Contains(itemDefinition.itemid);
+
+            private void ValidateItemShortNames(InstantCraft plugin, string[] itemShortNameList, HashSet<int> validItemIdList)
+            {
+                foreach (var itemShortName in itemShortNameList)
+                {
+                    if (itemShortName == "put item shortname here")
+                        return;
+
+                    var itemDefinition = ItemManager.FindItemDefinition(itemShortName);
+                    if (itemDefinition == null)
+                    {
+                        plugin.PrintError($"Invalid item short name in config: {itemShortName}");
+                        continue;
+                    }
+
+                    validItemIdList.Add(itemDefinition.itemid);
+                }
+            }
         }
 
         protected override void LoadConfig()
