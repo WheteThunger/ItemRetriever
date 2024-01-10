@@ -7,11 +7,14 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.6.3")]
+    [Info("Item Retriever", "WhiteThunder", "0.6.4")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
         #region Fields
+
+        [PluginReference]
+        private readonly Plugin InstantCraft;
 
         private const int InventorySize = 24;
         private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 24);
@@ -24,7 +27,7 @@ namespace Oxide.Plugins
         private readonly ApiInstance _api;
         private readonly Dictionary<int, int> _overridenIngredients = new Dictionary<int, int>();
         private readonly List<Item> _reusableItemList = new List<Item>();
-        private bool _callingCanCraft;
+        private Func<ItemDefinition, bool> _isBlockedByInstantCraft;
 
         public ItemRetriever()
         {
@@ -35,6 +38,11 @@ namespace Oxide.Plugins
 
         #region Hooks
 
+        private void OnServerInitialized()
+        {
+            RefreshInstantCraftCallback();
+        }
+
         private void Unload()
         {
             _containerManager.RemoveContainers();
@@ -44,10 +52,23 @@ namespace Oxide.Plugins
             ObjectCache.Clear<Item.Flag>();
         }
 
+        private void OnPluginLoaded(Plugin plugin)
+        {
+            if (plugin.Name == nameof(InstantCraft))
+            {
+                RefreshInstantCraftCallback();
+            }
+        }
+
         private void OnPluginUnloaded(Plugin plugin)
         {
             _supplierManager.RemoveSupplier(plugin);
             _containerManager.RemoveContainers(plugin);
+
+            if (plugin.Name == nameof(InstantCraft))
+            {
+                RefreshInstantCraftCallback();
+            }
         }
 
         private void OnEntitySaved(BasePlayer player, BaseNetworkable.SaveInfo saveInfo)
@@ -137,17 +158,10 @@ namespace Oxide.Plugins
 
         private object CanCraft(ItemCrafter itemCrafter, ItemBlueprint blueprint, int amount, bool free)
         {
-            if (_callingCanCraft)
-                return null;
-
-            _callingCanCraft = true;
-            var canCraftResult = Interface.CallHook("CanCraft", itemCrafter, blueprint, ObjectCache.Get(amount), ObjectCache.Get(free));
-            _callingCanCraft = false;
-            if (canCraftResult != null)
+            if (_isBlockedByInstantCraft?.Invoke(blueprint.targetItem) == true)
                 return null;
 
             var basePlayer = itemCrafter.baseEntity;
-
             ExposedHooks.OnIngredientsDetermine(_overridenIngredients, blueprint, amount, basePlayer);
 
             if (_overridenIngredients.Count > 0)
@@ -397,6 +411,11 @@ namespace Oxide.Plugins
             }
 
             return highestUsedSlot;
+        }
+
+        private void RefreshInstantCraftCallback()
+        {
+            _isBlockedByInstantCraft = InstantCraft?.Call("API_GetIsItemBlockedCallback") as Func<ItemDefinition, bool>;
         }
 
         private void SerializeForNetwork(BasePlayer player, ProtoBuf.ItemContainer containerData)
