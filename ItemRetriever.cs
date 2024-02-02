@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.6.4")]
+    [Info("Item Retriever", "WhiteThunder", "0.6.5")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -18,6 +18,7 @@ namespace Oxide.Plugins
 
         private const int InventorySize = 24;
         private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 24);
+        private const ItemDefinition.Flag SearchableItemDefinitionFlag = (ItemDefinition.Flag)(1 << 24);
 
         private static readonly object True = true;
         private static readonly object False = false;
@@ -706,22 +707,24 @@ namespace Oxide.Plugins
                 return totalAmountTaken;
             }
 
-            private static bool HasItemMod<T>(ItemDefinition itemDefinition) where T : ItemMod
+            private static T GetItemMod<T>(ItemDefinition itemDefinition) where T : ItemMod
             {
                 for (var i = 0; i < itemDefinition.itemMods.Length; i++)
                 {
                     var itemMod = itemDefinition.itemMods[i];
-                    if (itemMod is T)
-                        return true;
+                    if (itemMod is T itemModOfType)
+                        return itemModOfType;
                 }
 
-                return false;
+                return null;
             }
 
             private static bool HasSearchableContainer(ItemDefinition itemDefinition)
             {
                 // Don't consider vanilla containers searchable (i.e., don't take low grade out of a miner's hat).
-                return !HasItemMod<ItemModContainer>(itemDefinition);
+                return GetItemMod<ItemModContainer>(itemDefinition) == null
+                       || itemDefinition.HasFlag(ItemDefinition.Flag.Backpack)
+                       || itemDefinition.HasFlag(SearchableItemDefinitionFlag);
             }
 
             private static bool HasSearchableContainer(int itemId)
