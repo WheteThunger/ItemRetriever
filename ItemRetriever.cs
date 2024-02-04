@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.6.5")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.0")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -135,7 +135,7 @@ namespace Oxide.Plugins
                         continue;
 
                     var itemQuery = new ItemIdQuery(entry.Key);
-                    TakePlayerItems(player, ref itemQuery, entry.Value, collect);
+                    TakePlayerItems(player, ref itemQuery, entry.Value, collect, task);
                 }
             }
             else
@@ -144,7 +144,7 @@ namespace Oxide.Plugins
                 {
                     var ingredient = blueprint.ingredients[i];
                     var itemQuery = new ItemIdQuery(ingredient.itemid);
-                    TakePlayerItems(player, ref itemQuery, (int)ingredient.amount * amount, collect);
+                    TakePlayerItems(player, ref itemQuery, (int)ingredient.amount * amount, collect, task);
                 }
             }
 
@@ -461,9 +461,9 @@ namespace Oxide.Plugins
                 + _containerManager.SumPlayerItems(player, ref itemQuery);
         }
 
-        private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect) where T : IItemQuery
+        private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, ItemCraftTask itemCraftTask = null) where T : IItemQuery
         {
-            var amountTaken = _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake, collect, beforeInventory: true);
+            var amountTaken = _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake, collect, itemCraftTask, beforeInventory: true);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
@@ -479,7 +479,7 @@ namespace Oxide.Plugins
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake - amountTaken, collect);
+            amountTaken += _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake - amountTaken, collect, itemCraftTask);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
@@ -933,6 +933,7 @@ namespace Oxide.Plugins
                 GetOption(spec, "FindPlayerItems", out supplier.FindPlayerItems);
                 GetOption(spec, "SumPlayerItems", out supplier.SumPlayerItems);
                 GetOption(spec, "TakePlayerItems", out supplier.TakePlayerItems);
+                GetOption(spec, "TakePlayerItemsV2", out supplier.TakePlayerItemsV2);
                 GetOption(spec, "FindPlayerAmmo", out supplier.FindPlayerAmmo);
                 GetOption(spec, "SerializeForNetwork", out supplier.SerializeForNetwork);
 
@@ -952,6 +953,7 @@ namespace Oxide.Plugins
             public Action<BasePlayer, Dictionary<string, object>, List<Item>> FindPlayerItems;
             public Func<BasePlayer, Dictionary<string, object>, int> SumPlayerItems;
             public Func<BasePlayer, Dictionary<string, object>, int, List<Item>, int> TakePlayerItems;
+            public Func<BasePlayer, Dictionary<string, object>, int, List<Item>, ItemCraftTask, int> TakePlayerItemsV2;
             public Action<BasePlayer, AmmoTypes, List<Item>> FindPlayerAmmo;
             public Action<BasePlayer, List<ProtoBuf.Item>> SerializeForNetwork;
         }
@@ -1067,7 +1069,7 @@ namespace Oxide.Plugins
                 return sum;
             }
 
-            public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, bool beforeInventory = false) where T : IItemQuery
+            public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, ItemCraftTask itemCraftTask, bool beforeInventory = false) where T : IItemQuery
             {
                 var suppliers = beforeInventory ? _beforeInventorySuppliers : _afterInventorySuppliers;
                 if (suppliers.Count == 0)
@@ -1079,7 +1081,9 @@ namespace Oxide.Plugins
 
                 for (var i = 0; i < suppliers.Count; i++)
                 {
-                    amountTaken += suppliers[i].TakePlayerItems?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect) ?? 0;
+                    amountTaken += suppliers[i].TakePlayerItemsV2?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect, itemCraftTask)
+                        ?? suppliers[i].TakePlayerItems?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect)
+                        ?? 0;
 
                     if (amountTaken >= amountToTake)
                         return amountTaken;
