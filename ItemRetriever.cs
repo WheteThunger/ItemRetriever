@@ -17,7 +17,8 @@ namespace Oxide.Plugins
         private readonly Plugin InstantCraft;
 
         private const int InventorySize = 24;
-        private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 24);
+        private const Item.Flag SearchableItemFlag = (Item.Flag)(1 << 24);
+        private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 25);
         private const ItemDefinition.Flag SearchableItemDefinitionFlag = (ItemDefinition.Flag)(1 << 24);
 
         private static readonly object True = true;
@@ -707,45 +708,49 @@ namespace Oxide.Plugins
                 return totalAmountTaken;
             }
 
-            private static T GetItemMod<T>(ItemDefinition itemDefinition) where T : ItemMod
+            private static bool IsSearchableItemDefinition(ItemDefinition itemDefinition)
             {
-                for (var i = 0; i < itemDefinition.itemMods.Length; i++)
-                {
-                    var itemMod = itemDefinition.itemMods[i];
-                    if (itemMod is T itemModOfType)
-                        return itemModOfType;
-                }
-
-                return null;
+                return (itemDefinition.flags & (ItemDefinition.Flag.Backpack | SearchableItemDefinitionFlag)) != 0;
             }
 
-            private static bool HasSearchableContainer(ItemDefinition itemDefinition)
-            {
-                // Don't consider vanilla containers searchable (i.e., don't take low grade out of a miner's hat).
-                return GetItemMod<ItemModContainer>(itemDefinition) == null
-                       || itemDefinition.HasFlag(ItemDefinition.Flag.Backpack)
-                       || itemDefinition.HasFlag(SearchableItemDefinitionFlag);
-            }
-
-            private static bool HasSearchableContainer(int itemId)
+            private static bool IsSearchableItemDefinition(int itemId)
             {
                 var itemDefinition = ItemManager.FindItemDefinition(itemId);
                 if ((object)itemDefinition == null)
                     return false;
 
-                return HasSearchableContainer(itemDefinition);
+                return IsSearchableItemDefinition(itemDefinition);
             }
 
             private static bool HasSearchableContainer(Item item, out List<Item> itemList)
             {
                 itemList = item.contents?.itemList;
-                return itemList?.Count > 0 && !item.HasFlag(UnsearchableItemFlag) && HasSearchableContainer(item.info);
+                if (itemList is not { Count: > 0 })
+                    return false;
+
+                if (item.HasFlag(SearchableItemFlag))
+                    return true;
+
+                if (item.HasFlag(UnsearchableItemFlag))
+                    return false;
+
+                return IsSearchableItemDefinition(item.info);
             }
 
             private static bool HasSearchableContainer(ProtoBuf.Item itemData, out List<ProtoBuf.Item> itemList)
             {
                 itemList = itemData.contents?.contents;
-                return itemList?.Count > 0 && !((Item.Flag)itemData.flags).HasFlag(UnsearchableItemFlag) && HasSearchableContainer(itemData.itemid);
+                if (itemList is not { Count: > 0 })
+                    return false;
+
+                var itemFlags = (Item.Flag)itemData.flags;
+                if (itemFlags.HasFlag(SearchableItemFlag))
+                    return true;
+
+                if (itemFlags.HasFlag(UnsearchableItemFlag))
+                    return false;
+
+                return IsSearchableItemDefinition(itemData.itemid);
             }
         }
 
