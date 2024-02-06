@@ -1,29 +1,31 @@
 ## Features
 
-- Allows players to build, craft, reload and more using items from external sources
+- Allows players to build, craft, reload and more using resources from external sources, including vanilla backpacks
 - Supports building, upgrading, crafting, repairing, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, and unlocking blueprints via the tech tree
-- Supports many plugins that call vanilla functions to find and take items
-- Functions as a router between plugins that consume items and plugins that supply items
+- Supports many plugins that call vanilla functions to find and take resources
+- Functions as a router between plugins that consume resources and plugins that supply resources
 
 ## How it works
 
-If you install this plugin by itself, it will have no effect. This plugin is useful when you use other plugins which are compatible with it.
+If you install this plugin by itself, it will allow players to build/craft/etc. using resources from their equipped _vanilla_ backpack. This capability does not require any permissions or configuration.
 
-- When the [Backpacks](https://umod.org/plugins/backpacks) plugin is installed, players will be able to build/craft/etc. using the items from inside their backpacks, if they have the `backpacks.retrieve` permission and if they have toggled on Retrieve mode (which is a per-backpack-page setting).
-- When the Bag of Holding plugin is installed, players will be able to build/craft/etc. using the items inside their bags.
-- When the [Virtual Items](https://umod.org/plugins/virtual-items) plugin is installed, players will be able to build/craft/etc. using no items at all, according to the configuration and permissions in that plugin.
+This plugin becomes more useful when you have other plugins that are compatible with it, including the following examples.
+
+- When the [Backpacks](https://umod.org/plugins/backpacks) plugin is installed, players will be able to build/craft/etc. using resources from inside their backpacks, if they have the `backpacks.retrieve` permission and if they have toggled on Retrieve mode (which is a per-backpack-page setting).
+- When the Bag of Holding plugin is installed, players will be able to build/craft/etc. using the resources inside their bags.
+- When the [Virtual Items](https://umod.org/plugins/virtual-items) plugin is installed, players will be able to build/craft/etc. using no resources at all, according to the configuration and permissions in that plugin.
 
 ### Concepts
 
 - **Item Consumers** -- Any plugin or vanilla function that takes or deletes items from player inventories.
-  - Example vanilla functions: Building, upgrading, crafting, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, unlocking blueprints via the tech tree
-  - Example plugins: [Custom Vending Setup](https://umod.org/plugins/custom-vending-setup) 
+  - Example vanilla functions: Building, upgrading, crafting, reloading, opening key locks, purchasing from vending machines, purchasing from vehicle vendors, and unlocking blueprints via the tech tree.
+  - Example plugins: [Custom Vending Setup](https://umod.org/plugins/custom-vending-setup)
 - **Item Suppliers** -- Any plugin that hooks into Item Retriever to provide items on-demand for Item Consumers. Allows loading or creating items on-demand.
   - Example plugins: [Backpacks](https://umod.org/plugins/backpacks), [Virtual Items](https://umod.org/plugins/virtual-items)
-- **Container Suppliers** -- Any plugin that registers containers with Item Retriever. Item Retriever will search those containers on-demand for Item Consumers. For example, a plugin could add a UI button to storage containers, allowing players to individually toggle whether they can remotely utilize the contents of those containers.
+- **Container Suppliers** -- Any plugin that registers containers with Item Retriever. Item Retriever will search those containers on-demand on behalf of Item Consumers. For example, a plugin could add a UI button to storage containers, allowing players to individually toggle whether they can remotely utilize the contents of those containers.
   - Example plugins: None at this time.
 
-In addition to explicit Item Suppliers and Container Suppliers, plugins that store items inside other items, such as Bag of Holding, automatically function as compatible Item Suppliers.
+In addition to _explicit_ Item Suppliers and Container Suppliers, some items may _implicitly_ function as Item Suppliers, including vanilla backpacks, and bags managed by the Bag of Holding plugin.
 
 ## Incompatible plugins
 
