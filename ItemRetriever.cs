@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.0")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.1")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -89,20 +89,20 @@ namespace Oxide.Plugins
         private object OnInventoryItemsCount(PlayerInventory inventory, int itemId)
         {
             var itemQuery = new ItemIdQuery(itemId);
-            return ObjectCache.Get(SumPlayerItems(inventory.baseEntity, ref itemQuery));
+            return ObjectCache.Get(SumPlayerItems(inventory.baseEntity, ref itemQuery, countPlayerWearables: true));
         }
 
         private object OnInventoryItemsTake(PlayerInventory inventory, List<Item> collect, int itemId, int amount)
         {
             var itemQuery = new ItemIdQuery(itemId);
-            return ObjectCache.Get(TakePlayerItems(inventory.baseEntity, ref itemQuery, amount, collect));
+            return ObjectCache.Get(TakePlayerItems(inventory.baseEntity, ref itemQuery, amount, collect, includePlayerWearables: true));
         }
 
         private object OnInventoryItemsFind(PlayerInventory inventory, int itemId)
         {
             var itemQuery = new ItemIdQuery(itemId);
             var list = new List<Item>();
-            FindPlayerItems(inventory.baseEntity, ref itemQuery, list);
+            FindPlayerItems(inventory.baseEntity, ref itemQuery, list, includePlayerWearables: true);
             return list;
         }
 
@@ -119,7 +119,7 @@ namespace Oxide.Plugins
 
             _reusableItemList.Clear();
             var itemQuery = new ItemIdQuery(itemDefinition.itemid);
-            FindPlayerItems(inventory.baseEntity, ref itemQuery, _reusableItemList);
+            FindPlayerItems(inventory.baseEntity, ref itemQuery, _reusableItemList, includePlayerWearables: true);
             return _reusableItemList.FirstOrDefault();
         }
 
@@ -443,26 +443,26 @@ namespace Oxide.Plugins
             }
         }
 
-        private void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect) where T : IItemQuery
+        private void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect, bool includePlayerWearables = false) where T : IItemQuery
         {
             _supplierManager.FindPlayerItems(player, ref itemQuery, collect, beforeInventory: true);
             ItemUtils.FindItems(player.inventory.containerMain.itemList, ref itemQuery, collect);
             ItemUtils.FindItems(player.inventory.containerBelt.itemList, ref itemQuery, collect);
-            ItemUtils.FindItems(player.inventory.containerWear.itemList, ref itemQuery, collect, childItemsOnly: true);
+            ItemUtils.FindItems(player.inventory.containerWear.itemList, ref itemQuery, collect, childItemsOnly: !includePlayerWearables);
             _supplierManager.FindPlayerItems(player, ref itemQuery, collect);
             _containerManager.FindPlayerItems(player, ref itemQuery, collect);
         }
 
-        private int SumPlayerItems<T>(BasePlayer player, ref T itemQuery) where T : IItemQuery
+        private int SumPlayerItems<T>(BasePlayer player, ref T itemQuery, bool countPlayerWearables = false) where T : IItemQuery
         {
             return ItemUtils.SumItems(player.inventory.containerMain.itemList, ref itemQuery)
                 + ItemUtils.SumItems(player.inventory.containerBelt.itemList, ref itemQuery)
-                + ItemUtils.SumItems(player.inventory.containerWear.itemList, ref itemQuery, childItemsOnly: true)
+                + ItemUtils.SumItems(player.inventory.containerWear.itemList, ref itemQuery, childItemsOnly: !countPlayerWearables)
                 + _supplierManager.SumPlayerItems(player, ref itemQuery)
                 + _containerManager.SumPlayerItems(player, ref itemQuery);
         }
 
-        private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, ItemCraftTask itemCraftTask = null) where T : IItemQuery
+        private int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, ItemCraftTask itemCraftTask = null, bool includePlayerWearables = false) where T : IItemQuery
         {
             var amountTaken = _supplierManager.TakePlayerItems(player, ref itemQuery, amountToTake, collect, itemCraftTask, beforeInventory: true);
             if (amountTaken >= amountToTake)
@@ -476,7 +476,7 @@ namespace Oxide.Plugins
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
-            amountTaken += ItemUtils.TakeItems(player.inventory.containerWear.itemList, ref itemQuery, amountToTake - amountTaken, collect, childItemsOnly: true);
+            amountTaken += ItemUtils.TakeItems(player.inventory.containerWear.itemList, ref itemQuery, amountToTake - amountTaken, collect, childItemsOnly: !includePlayerWearables);
             if (amountTaken >= amountToTake)
                 return amountTaken;
 
