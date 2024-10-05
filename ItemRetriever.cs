@@ -29,11 +29,11 @@ namespace Oxide.Plugins
         private static readonly object True = true;
         private static readonly object False = false;
 
-        private readonly SupplierManager _supplierManager = new SupplierManager();
-        private readonly ContainerManager _containerManager = new ContainerManager();
+        private readonly SupplierManager _supplierManager = new();
+        private readonly ContainerManager _containerManager = new();
         private readonly ApiInstance _api;
-        private readonly Dictionary<int, int> _overridenIngredients = new Dictionary<int, int>();
-        private readonly List<Item> _reusableItemList = new List<Item>();
+        private readonly Dictionary<int, int> _overridenIngredients = new();
+        private readonly List<Item> _reusableItemList = new();
         private Func<ItemDefinition, bool> _isBlockedByInstantCraft;
 
         public ItemRetriever()
@@ -579,24 +579,26 @@ namespace Oxide.Plugins
 
         private static class StringUtils
         {
-            public static bool EqualsIgnoreCase(string a, string b) =>
-                string.Compare(a, b, StringComparison.OrdinalIgnoreCase) == 0;
+            public static bool EqualsIgnoreCase(string a, string b)
+            {
+                return string.Compare(a, b, StringComparison.OrdinalIgnoreCase) == 0;
+            }
         }
 
         private static class ObjectCache
         {
             private static class StaticObjectCache<T>
             {
-                private static readonly Dictionary<T, object> _cacheByValue = new Dictionary<T, object>();
+                private static readonly Dictionary<T, object> _cacheByValue = new();
 
                 public static object Get(T value)
                 {
-                    object cachedObject;
-                    if (!_cacheByValue.TryGetValue(value, out cachedObject))
+                    if (!_cacheByValue.TryGetValue(value, out var cachedObject))
                     {
                         cachedObject = value;
                         _cacheByValue[value] = cachedObject;
                     }
+
                     return cachedObject;
                 }
 
@@ -644,8 +646,7 @@ namespace Oxide.Plugins
                         itemsAdded++;
                     }
 
-                    List<Item> childItemList;
-                    if (HasSearchableContainer(item, out childItemList))
+                    if (HasSearchableContainer(item, out var childItemList))
                     {
                         itemsAdded += SerializeForNetwork(childItemList, containerData, ref nextInvisibleSlot);
                     }
@@ -667,11 +668,11 @@ namespace Oxide.Plugins
                         // Items that don't have UIDs (fake items) need unique UIDs.
                         itemData.UID = new ItemId(ulong.MaxValue - (ulong)nextInvisibleSlot);
                     }
+
                     containerData.contents.Add(itemData);
                     itemsAdded++;
 
-                    List<ProtoBuf.Item> childItemList;
-                    if (HasSearchableContainer(itemData, out childItemList))
+                    if (HasSearchableContainer(itemData, out var childItemList))
                     {
                         itemsAdded += SerializeForNetwork(childItemList, containerData, ref nextInvisibleSlot);
                     }
@@ -691,8 +692,7 @@ namespace Oxide.Plugins
                         collect.Add(item);
                     }
 
-                    List<Item> childItemList;
-                    if (HasSearchableContainer(item, out childItemList))
+                    if (HasSearchableContainer(item, out var childItemList))
                     {
                         FindItems(childItemList, ref itemQuery, collect);
                     }
@@ -708,8 +708,7 @@ namespace Oxide.Plugins
                     var item = itemList[i];
                     sum += childItemsOnly ? 0 : itemQuery.GetUsableAmount(item);
 
-                    List<Item> childItemList;
-                    if (HasSearchableContainer(item, out childItemList))
+                    if (HasSearchableContainer(item, out var childItemList))
                     {
                         sum += SumItems(childItemList, ref itemQuery);
                     }
@@ -744,6 +743,7 @@ namespace Oxide.Plugins
                                 {
                                     splitItem.CollectedForCrafting(playerOwner);
                                 }
+
                                 collect.Add(splitItem);
                             }
                             else
@@ -769,8 +769,7 @@ namespace Oxide.Plugins
                         totalAmountTaken += amountToTake;
                     }
 
-                    List<Item> childItemList;
-                    if (HasSearchableContainer(item, out childItemList))
+                    if (HasSearchableContainer(item, out var childItemList))
                     {
                         totalAmountTaken += TakeItems(childItemList, ref itemQuery, amountToTake, collect);
                     }
@@ -892,10 +891,9 @@ namespace Oxide.Plugins
 
             private static void GetOption<T>(Dictionary<string, object> dict, string key, out T result)
             {
-                object value;
-                result = dict.TryGetValue(key, out value) && value is T
-                    ? (T)value
-                    : default(T);
+                result = dict.TryGetValue(key, out var value) && value is T valueOfType
+                    ? valueOfType
+                    : default;
             }
 
             public int? BlueprintId;
@@ -1021,10 +1019,9 @@ namespace Oxide.Plugins
 
             private static void GetOption<T>(Dictionary<string, object> dict, string key, out T result)
             {
-                object value;
-                result = dict.TryGetValue(key, out value) && value is T
-                    ? (T)value
-                    : default(T);
+                result = dict.TryGetValue(key, out var value) && value is T valueOfType
+                    ? valueOfType
+                    : default;
             }
 
             public Plugin Plugin { get; private set; }
@@ -1065,12 +1062,12 @@ namespace Oxide.Plugins
             }
 
             // Use a list with standard for loops for high performance.
-            private List<ItemSupplier> _allSuppliers = new List<ItemSupplier>();
-            private List<ItemSupplier> _beforeInventorySuppliers = new List<ItemSupplier>();
-            private List<ItemSupplier> _afterInventorySuppliers = new List<ItemSupplier>();
+            private List<ItemSupplier> _allSuppliers = new();
+            private List<ItemSupplier> _beforeInventorySuppliers = new();
+            private List<ItemSupplier> _afterInventorySuppliers = new();
 
-            private List<ProtoBuf.Item> _reusableItemListForNetwork = new List<ProtoBuf.Item>(32);
-            private Dictionary<string, object> _reusableItemQuery = new Dictionary<string, object>();
+            private List<ProtoBuf.Item> _reusableItemListForNetwork = new(32);
+            private Dictionary<string, object> _reusableItemQuery = new();
 
             public void AddSupplier(Plugin plugin, Dictionary<string, object> spec)
             {
@@ -1200,7 +1197,7 @@ namespace Oxide.Plugins
 
             private BaseEntity _entity;
             private ContainerManager _containerManager;
-            private List<ContainerEntry> _containerList = new List<ContainerEntry>();
+            private List<ContainerEntry> _containerList = new();
 
             public void AddContainer(ContainerEntry containerEntry)
             {
@@ -1278,14 +1275,14 @@ namespace Oxide.Plugins
                 return false;
             }
 
-            private static bool RemoveEntries(List<ContainerEntry> containerList, BasePlayer player)
+            private static bool RemoveEntries(List<ContainerEntry> containerList, Plugin plugin, BasePlayer player)
             {
                 var anyRemoved = false;
 
                 for (var i = containerList.Count - 1; i >= 0; i--)
                 {
                     var containerEntry = containerList[i];
-                    if (containerEntry.Player == player)
+                    if (containerEntry.Plugin.Name == plugin.Name && containerEntry.Player == player)
                     {
                         containerList.RemoveAt(i);
                         containerEntry.Deactivate();
@@ -1314,8 +1311,8 @@ namespace Oxide.Plugins
                 return false;
             }
 
-            private Dictionary<ulong, List<ContainerEntry>> _playerContainerEntries = new Dictionary<ulong, List<ContainerEntry>>();
-            private Dictionary<BaseEntity, EntityTracker> _entityTrackers = new Dictionary<BaseEntity, EntityTracker>();
+            private Dictionary<ulong, List<ContainerEntry>> _playerContainerEntries = new();
+            private Dictionary<BaseEntity, EntityTracker> _entityTrackers = new();
 
             public void UnregisterEntity(BaseEntity entity)
             {
@@ -1353,12 +1350,12 @@ namespace Oxide.Plugins
                 var entity = containerEntity as BaseEntity;
                 if ((object)entity != null)
                 {
-                    EntityTracker entityTracker;
-                    if (!_entityTrackers.TryGetValue(entity, out entityTracker))
+                    if (!_entityTrackers.TryGetValue(entity, out var entityTracker))
                     {
                         entityTracker = EntityTracker.AddToEntity(entity, this);
                         _entityTrackers[entity] = entityTracker;
                     }
+
                     containerEntry.EntityTracker = entityTracker;
                     entityTracker.AddContainer(containerEntry);
                 }
@@ -1395,7 +1392,7 @@ namespace Oxide.Plugins
                 var containerList = GetContainerList(player);
                 if (containerList != null)
                 {
-                    anyRemoved |= RemoveEntries(containerList, player);
+                    anyRemoved |= RemoveEntries(containerList, plugin, player);
 
                     if (containerList.Count == 0)
                     {
@@ -1412,29 +1409,18 @@ namespace Oxide.Plugins
 
                 List<ulong> removePlayerIds = null;
 
-                foreach (var playerEntry in _playerContainerEntries)
+                foreach (var (player, containerList) in _playerContainerEntries)
                 {
-                    var player = playerEntry.Key;
-                    var containerList = playerEntry.Value;
-
                     List<ContainerEntry> removeContainers = null;
 
                     foreach (var containerEntry in containerList)
                     {
                         if (containerEntry.Plugin == plugin)
                         {
-                            if (removeContainers == null)
-                            {
-                                removeContainers = new List<ContainerEntry>();
-                            }
-
+                            removeContainers ??= new List<ContainerEntry>();
                             removeContainers.Add(containerEntry);
 
-                            if (updatedPlayers == null)
-                            {
-                                updatedPlayers = new HashSet<BasePlayer>();
-                            }
-
+                            updatedPlayers ??= new HashSet<BasePlayer>();
                             updatedPlayers.Add(containerEntry.Player);
                         }
                     }
@@ -1450,11 +1436,7 @@ namespace Oxide.Plugins
 
                     if (containerList.Count == 0)
                     {
-                        if (removePlayerIds == null)
-                        {
-                            removePlayerIds = new List<ulong>();
-                        }
-
+                        removePlayerIds ??= new List<ulong>();
                         removePlayerIds.Add(player);
                     }
                 }
@@ -1483,10 +1465,7 @@ namespace Oxide.Plugins
 
             public List<ContainerEntry> GetContainerList(BasePlayer player)
             {
-                List<ContainerEntry> containerList;
-                return _playerContainerEntries.TryGetValue(player.userID, out containerList)
-                    ? containerList
-                    : null;
+                return _playerContainerEntries.GetValueOrDefault(player.userID);
             }
 
             public int SerializeForNetwork(BasePlayer player, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
