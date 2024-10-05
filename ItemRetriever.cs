@@ -1,13 +1,16 @@
-﻿using Oxide.Core;
+﻿using HarmonyLib;
+using Oxide.Core;
 using Oxide.Core.Plugins;
 using Rust;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.1")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.2")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -15,6 +18,8 @@ namespace Oxide.Plugins
 
         [PluginReference]
         private readonly Plugin InstantCraft;
+
+        private static ItemRetriever _instance;
 
         private const int InventorySize = 24;
         private const Item.Flag SearchableItemFlag = (Item.Flag)(1 << 24);
@@ -38,7 +43,66 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Harmony Patches
+
+        [AutoPatch]
+        [HarmonyPatch(typeof(PlayerInventory), "FindItemByItemID", typeof(int))]
+        private static class Patch_PlayerInventory_FindItemByItemID
+        {
+            private static readonly CodeInstruction OnInventoryItemFindInstruction = new(OpCodes.Ldstr, nameof(OnInventoryItemFind));
+
+            private static readonly MethodInfo _replacementMethod = typeof(Patch_PlayerInventory_FindItemByItemID)
+                .GetMethod(nameof(ReplacementMethod), BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+
+            private static readonly CodeInstruction[] _newInstructions =
+            {
+                new(OpCodes.Ldarg_0),
+                new(OpCodes.Ldarg_1),
+                new(OpCodes.Call, _replacementMethod),
+                new(OpCodes.Ret),
+            };
+
+            private static Item ReplacementMethod(PlayerInventory playerInventory, int itemId)
+            {
+                if (_instance is { IsLoaded: true })
+                {
+                    return _instance.Call(nameof(OnInventoryItemFind), playerInventory, itemId) as Item;
+                }
+
+                return null;
+            }
+
+            private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            {
+                if (instructions.Any(instruction => HarmonyUtils.InstructionsMatch(instruction, OnInventoryItemFindInstruction)))
+                    return instructions;
+
+                return _newInstructions;
+            }
+        }
+
+        private static class HarmonyUtils
+        {
+            public static bool InstructionsMatch(CodeInstruction a, CodeInstruction b)
+            {
+                if (a.opcode != b.opcode)
+                    return false;
+
+                if (a.operand == null)
+                    return b.operand == null;
+
+                return a.operand.Equals(b.operand);
+            }
+        }
+
+        #endregion
+
         #region Hooks
+
+        private void Init()
+        {
+            _instance = this;
+        }
 
         private void OnServerInitialized()
         {
@@ -52,6 +116,8 @@ namespace Oxide.Plugins
             ObjectCache.Clear<float>();
             ObjectCache.Clear<ulong>();
             ObjectCache.Clear<Item.Flag>();
+
+            _instance = null;
         }
 
         private void OnPluginLoaded(Plugin plugin)
@@ -104,6 +170,14 @@ namespace Oxide.Plugins
             var list = new List<Item>();
             FindPlayerItems(inventory.baseEntity, ref itemQuery, list, includePlayerWearables: true);
             return list;
+        }
+
+        private object OnInventoryItemFind(PlayerInventory inventory, int itemId)
+        {
+            var itemQuery = new ItemIdQuery(itemId);
+            _reusableItemList.Clear();
+            FindPlayerItems(inventory.baseEntity, ref itemQuery, _reusableItemList, includePlayerWearables: true);
+            return _reusableItemList.FirstOrDefault();
         }
 
         private object OnInventoryAmmoFind(PlayerInventory inventory, List<Item> collect, AmmoTypes ammoType)
