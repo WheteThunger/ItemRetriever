@@ -26,11 +26,16 @@ namespace Oxide.Plugins
         private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 25);
         private const ItemDefinition.Flag SearchableItemDefinitionFlag = (ItemDefinition.Flag)(1 << 24);
 
+        // The CustomItemDefinitions plugin adds this flag to all custom item definitions.
+        // Custom items to be skipped when adding items to network messages, since they have invalid item ids.
+        private const ItemDefinition.Flag CustomItemDefinitionFlag = (ItemDefinition.Flag)128;
+
         private static readonly object True = true;
         private static readonly object False = false;
 
-        private readonly SupplierManager _supplierManager = new();
-        private readonly ContainerManager _containerManager = new();
+        private readonly CustomItemDefinitionTracker _customItemDefinitionTracker = new();
+        private readonly SupplierManager _supplierManager;
+        private readonly ContainerManager _containerManager;
         private readonly ApiInstance _api;
         private readonly Dictionary<int, int> _overridenIngredients = new();
         private readonly List<Item> _reusableItemList = new();
@@ -39,6 +44,8 @@ namespace Oxide.Plugins
         public ItemRetriever()
         {
             _api = new ApiInstance(this);
+            _supplierManager = new(_customItemDefinitionTracker);
+            _containerManager = new(_customItemDefinitionTracker);
         }
 
         #endregion
@@ -502,9 +509,9 @@ namespace Oxide.Plugins
             var firstAvailableInvisibleSlot = Math.Max(InventorySize, GetHighestUsedSlot(containerData) + 1);
             var nextInvisibleSlot = firstAvailableInvisibleSlot;
 
-            var itemsAdded = ItemUtils.SerializeForNetwork(player.inventory.containerMain.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
-                + ItemUtils.SerializeForNetwork(player.inventory.containerBelt.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
-                + ItemUtils.SerializeForNetwork(player.inventory.containerWear.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+            var itemsAdded = ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, player.inventory.containerMain.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, player.inventory.containerBelt.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, player.inventory.containerWear.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
                 + _supplierManager.SerializeForNetwork(player, containerData, ref nextInvisibleSlot)
                 + _containerManager.SerializeForNetwork(player, containerData, ref nextInvisibleSlot);
 
@@ -624,19 +631,55 @@ namespace Oxide.Plugins
             }
         }
 
+        private class CustomItemDefinitionTracker
+        {
+            private readonly HashSet<int> _customItemDefinitionIds = new();
+
+            public bool IsCustomItemDefinition(ItemDefinition itemDefinition)
+            {
+                return itemDefinition.HasFlag(CustomItemDefinitionFlag);
+            }
+
+            public bool IsCustomItemDefinition(Item item)
+            {
+                return IsCustomItemDefinition(item.info);
+            }
+
+            public bool IsCustomItemDefinition(int itemId)
+            {
+                if (_customItemDefinitionIds.Contains(itemId))
+                    return true;
+
+                var itemDefinition = ItemManager.FindItemDefinition(itemId);
+                if (itemDefinition == null)
+                    return true;
+
+                if (IsCustomItemDefinition(itemDefinition))
+                {
+                    _customItemDefinitionIds.Add(itemId);
+                    return true;
+                }
+
+                return false;
+            }
+        }
+
         #endregion
 
         #region Item Utils
 
         private static class ItemUtils
         {
-            public static int SerializeForNetwork(List<Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot, bool addChildContainersOnly = false)
+            public static int SerializeForNetwork(CustomItemDefinitionTracker customItemDefinitionTracker,
+                List<Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot, bool addChildContainersOnly = false)
             {
                 var itemsAdded = 0;
 
                 for (var i = 0; i < itemList.Count; i++)
                 {
                     var item = itemList[i];
+                    if (customItemDefinitionTracker.IsCustomItemDefinition(item))
+                        continue;
 
                     if (!addChildContainersOnly)
                     {
@@ -648,20 +691,24 @@ namespace Oxide.Plugins
 
                     if (HasSearchableContainer(item, out var childItemList))
                     {
-                        itemsAdded += SerializeForNetwork(childItemList, containerData, ref nextInvisibleSlot);
+                        itemsAdded += SerializeForNetwork(customItemDefinitionTracker, childItemList, containerData, ref nextInvisibleSlot);
                     }
                 }
 
                 return itemsAdded;
             }
 
-            public static int SerializeForNetwork(List<ProtoBuf.Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
+            public static int SerializeForNetwork(CustomItemDefinitionTracker customItemDefinitionTracker,
+                List<ProtoBuf.Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
             {
                 var itemsAdded = 0;
 
                 for (var i = 0; i < itemList.Count; i++)
                 {
                     var itemData = itemList[i];
+                    if (customItemDefinitionTracker.IsCustomItemDefinition(itemData.itemid))
+                        continue;
+
                     itemData.slot = nextInvisibleSlot++;
                     if (itemData.UID.Value == 0)
                     {
@@ -674,7 +721,7 @@ namespace Oxide.Plugins
 
                     if (HasSearchableContainer(itemData, out var childItemList))
                     {
-                        itemsAdded += SerializeForNetwork(childItemList, containerData, ref nextInvisibleSlot);
+                        itemsAdded += SerializeForNetwork(customItemDefinitionTracker, childItemList, containerData, ref nextInvisibleSlot);
                     }
                 }
 
@@ -1061,6 +1108,7 @@ namespace Oxide.Plugins
                 });
             }
 
+            private CustomItemDefinitionTracker _customItemDefinitionTracker;
             // Use a list with standard for loops for high performance.
             private List<ItemSupplier> _allSuppliers = new();
             private List<ItemSupplier> _beforeInventorySuppliers = new();
@@ -1068,6 +1116,11 @@ namespace Oxide.Plugins
 
             private List<ProtoBuf.Item> _reusableItemListForNetwork = new(32);
             private Dictionary<string, object> _reusableItemQuery = new();
+
+            public SupplierManager(CustomItemDefinitionTracker customItemDefinitionTracker)
+            {
+                _customItemDefinitionTracker = customItemDefinitionTracker;
+            }
 
             public void AddSupplier(Plugin plugin, Dictionary<string, object> spec)
             {
@@ -1107,7 +1160,7 @@ namespace Oxide.Plugins
                     _allSuppliers[i].SerializeForNetwork?.Invoke(player, _reusableItemListForNetwork);
                 }
 
-                var itemsAdded = ItemUtils.SerializeForNetwork(_reusableItemListForNetwork, containerData, ref nextInvisibleSlot);
+                var itemsAdded = ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, _reusableItemListForNetwork, containerData, ref nextInvisibleSlot);
 
                 _reusableItemListForNetwork.Clear();
 
@@ -1311,8 +1364,14 @@ namespace Oxide.Plugins
                 return false;
             }
 
+            private CustomItemDefinitionTracker _customItemDefinitionTracker;
             private Dictionary<ulong, List<ContainerEntry>> _playerContainerEntries = new();
             private Dictionary<BaseEntity, EntityTracker> _entityTrackers = new();
+
+            public ContainerManager(CustomItemDefinitionTracker customItemDefinitionTracker)
+            {
+                _customItemDefinitionTracker = customItemDefinitionTracker;
+            }
 
             public void UnregisterEntity(BaseEntity entity)
             {
@@ -1482,7 +1541,7 @@ namespace Oxide.Plugins
                     if (!containerEntry.IsValid || !containerEntry.CanUse())
                         continue;
 
-                    itemsAdded += ItemUtils.SerializeForNetwork(containerEntry.Container.itemList, containerData, ref nextInvisibleSlot);
+                    itemsAdded += ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, containerEntry.Container.itemList, containerData, ref nextInvisibleSlot);
                 }
 
                 return itemsAdded;
