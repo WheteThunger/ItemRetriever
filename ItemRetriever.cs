@@ -10,7 +10,7 @@ using System.Reflection.Emit;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.3")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.4")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -955,6 +955,7 @@ namespace Oxide.Plugins
             public const string DataIntField = "DataInt";
             public const string FlagsContainField = "FlagsContain";
             public const string FlagsEqualField = "FlagsEqual";
+            public const string IgnoreItemField = "IgnoreItem";
             public const string ItemDefinitionField = "ItemDefinition";
             public const string ItemIdField = "ItemId";
             public const string MinConditionField = "MinCondition";
@@ -970,6 +971,7 @@ namespace Oxide.Plugins
                 GetOption(raw, DataIntField, out itemQuery.DataInt);
                 GetOption(raw, FlagsContainField, out itemQuery.FlagsContain);
                 GetOption(raw, FlagsEqualField, out itemQuery.FlagsEqual);
+                GetOption(raw, IgnoreItemField, out itemQuery.IgnoreItem);
                 GetOption(raw, ItemDefinitionField, out itemQuery.ItemDefinition);
                 GetOption(raw, ItemIdField, out itemQuery.ItemId);
                 GetOption(raw, MinConditionField, out itemQuery.MinCondition);
@@ -991,6 +993,7 @@ namespace Oxide.Plugins
             public string DisplayName;
             public Item.Flag? FlagsContain;
             public Item.Flag? FlagsEqual;
+            public Item IgnoreItem;
             public ItemDefinition ItemDefinition;
             public int? ItemId;
             public float MinCondition;
@@ -999,6 +1002,9 @@ namespace Oxide.Plugins
 
             public int GetUsableAmount(Item item)
             {
+                if (IgnoreItem != null && item == IgnoreItem)
+                    return 0;
+
                 var itemId = GetItemId();
                 if (itemId.HasValue && itemId != item.info.itemid)
                     return 0;
@@ -1060,6 +1066,9 @@ namespace Oxide.Plugins
 
                 if (SkinId.HasValue)
                     itemQueryDict[SkinIdField] = ObjectCache.Get(SkinId.Value);
+
+                if (IgnoreItem != null)
+                    itemQueryDict[IgnoreItemField] = IgnoreItem;
             }
 
             private int? GetItemId()

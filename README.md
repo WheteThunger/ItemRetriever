@@ -362,6 +362,7 @@ The `API_FindPlayerItems`, `API_SumPlayerItems` and `API_TakePlayerItems` APIs a
 - `"FlagsContain"`: `Item.Flag` -- Corresponds to `item.flags`. Items may be considered a match even if their `item.flags` bit mask contains other flags.
 - `"FlagsEqual"`: `Item.Flag` -- Corresponds to `item.flags`. Items will not be considered a match if their `item.flags` bit mask contains other flags.
 - `"ItemId"`: `int` -- Corresponds to `item.info.itemid`.
+- `"IgnoreItem"`: `Item` -- Prevents matching on this specific item.
 - `"MinCondition"`: `float` -- Corresponds to `item.conditionNormalized`.
 - `"RequireEmpty"`: `bool` -- Corresponds to `item.contents.itemList.Count`. While `true`, items with contents (e.g., weapons with attachments) will not match. If an item with contents is stacked, all the items in the stack except one may be considered a match.
 - `"SkinId"`: `ulong` -- Corresponds to `item.skin`.
@@ -385,6 +386,7 @@ private struct ItemQuery
         GetOption(raw, "FlagsContain", out itemQuery.FlagsContain);
         GetOption(raw, "FlagsEqual", out itemQuery.FlagsEqual);
         GetOption(raw, "ItemId", out itemQuery.ItemId);
+        GetOption(raw, "IgnoreItem", out itemQuery.IgnoreItem);
         GetOption(raw, "MinCondition", out itemQuery.MinCondition);
         GetOption(raw, "RequireEmpty", out itemQuery.RequireEmpty);
         GetOption(raw, "SkinId", out itemQuery.SkinId);
@@ -405,6 +407,7 @@ private struct ItemQuery
     public string DisplayName;
     public Item.Flag? FlagsContain;
     public Item.Flag? FlagsEqual;
+    public Item IgnoreItem;
     public int? ItemId;
     public float MinCondition;
     public bool RequireEmpty;
