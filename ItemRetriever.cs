@@ -1,12 +1,9 @@
-﻿using HarmonyLib;
-using Oxide.Core;
+﻿using Oxide.Core;
 using Oxide.Core.Plugins;
 using Rust;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using System.Reflection.Emit;
 
 namespace Oxide.Plugins
 {
@@ -46,96 +43,6 @@ namespace Oxide.Plugins
             _api = new ApiInstance(this);
             _supplierManager = new(_customItemDefinitionTracker);
             _containerManager = new(_customItemDefinitionTracker);
-        }
-
-        #endregion
-
-        #region Harmony Patches
-
-        [AutoPatch]
-        [HarmonyPatch(typeof(PlayerInventory), "FindItemByItemID", typeof(int))]
-        private static class Patch_PlayerInventory_FindItemByItemID
-        {
-            private static readonly CodeInstruction OnInventoryItemFindInstruction = new(OpCodes.Ldstr, nameof(OnInventoryItemFind));
-
-            private static readonly MethodInfo _replacementMethod = typeof(Patch_PlayerInventory_FindItemByItemID)
-                .GetMethod(nameof(ReplacementMethod), BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-
-            private static readonly CodeInstruction[] _newInstructions =
-            {
-                new(OpCodes.Ldarg_0),
-                new(OpCodes.Ldarg_1),
-                new(OpCodes.Call, _replacementMethod),
-                new(OpCodes.Ret),
-            };
-
-            private static Item ReplacementMethod(PlayerInventory playerInventory, int itemId)
-            {
-                if (_instance is { IsLoaded: true })
-                {
-                    return _instance.Call(nameof(OnInventoryItemFind), playerInventory, itemId) as Item;
-                }
-
-                return null;
-            }
-
-            private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-            {
-                if (instructions.Any(instruction => HarmonyUtils.InstructionsMatch(instruction, OnInventoryItemFindInstruction)))
-                    return instructions;
-
-                return _newInstructions;
-            }
-        }
-
-        [AutoPatch]
-        [HarmonyPatch(typeof(PlayerInventory), "FindAmmo", typeof(AmmoTypes))]
-        private static class Patch_PlayerInventory_FindAmmo
-        {
-            private static readonly CodeInstruction OnInventoryAmmoItemFindInstruction = new(OpCodes.Ldstr, nameof(OnInventoryAmmoItemFind));
-
-            private static readonly MethodInfo _replacementMethod = typeof(Patch_PlayerInventory_FindAmmo)
-                .GetMethod(nameof(ReplacementMethod), BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-
-            private static readonly CodeInstruction[] _newInstructions =
-            {
-                new(OpCodes.Ldarg_0),
-                new(OpCodes.Ldarg_1),
-                new(OpCodes.Call, _replacementMethod),
-                new(OpCodes.Ret),
-            };
-
-            private static Item ReplacementMethod(PlayerInventory playerInventory, AmmoTypes ammoTypes)
-            {
-                if (_instance is { IsLoaded: true })
-                {
-                    return _instance.Call(nameof(OnInventoryAmmoItemFind), playerInventory, ammoTypes) as Item;
-                }
-
-                return null;
-            }
-
-            private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-            {
-                if (instructions.Any(instruction => HarmonyUtils.InstructionsMatch(instruction, OnInventoryAmmoItemFindInstruction)))
-                    return instructions;
-
-                return _newInstructions;
-            }
-        }
-
-        private static class HarmonyUtils
-        {
-            public static bool InstructionsMatch(CodeInstruction a, CodeInstruction b)
-            {
-                if (a.opcode != b.opcode)
-                    return false;
-
-                if (a.operand == null)
-                    return b.operand == null;
-
-                return a.operand.Equals(b.operand);
-            }
         }
 
         #endregion
