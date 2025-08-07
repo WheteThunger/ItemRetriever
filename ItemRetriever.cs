@@ -114,12 +114,11 @@ namespace Oxide.Plugins
             return ObjectCache.Get(TakePlayerItems(inventory.baseEntity, ref itemQuery, amount, collect, includePlayerWearables: true));
         }
 
-        private object OnInventoryItemsFind(PlayerInventory inventory, int itemId)
+        private object OnInventoryItemsFind(PlayerInventory inventory, int itemId, List<Item> collect)
         {
             var itemQuery = new ItemIdQuery(itemId);
-            var list = new List<Item>();
-            FindPlayerItems(inventory.baseEntity, ref itemQuery, list, includePlayerWearables: true);
-            return list;
+            FindPlayerItems(inventory.baseEntity, ref itemQuery, collect, includePlayerWearables: true);
+            return False;
         }
 
         private object OnInventoryItemFind(PlayerInventory inventory, int itemId)
