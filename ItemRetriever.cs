@@ -426,7 +426,7 @@ namespace Oxide.Plugins
 
         private static void MarkInventoryDirty(BasePlayer player)
         {
-            player.inventory.containerMain?.MarkDirty();
+            player.inventory?.containerMain?.MarkDirty();
         }
 
         private static int GetHighestUsedSlot(ProtoBuf.ItemContainer containerData)
