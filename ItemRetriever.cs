@@ -7,14 +7,14 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.5")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.6")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
         #region Fields
 
         [PluginReference]
-        private readonly Plugin InstantCraft;
+        private readonly Plugin InstantCraft, SuperCrafter;
 
         private static ItemRetriever _instance;
 
@@ -191,6 +191,9 @@ namespace Oxide.Plugins
         private object CanCraft(ItemCrafter itemCrafter, ItemBlueprint blueprint, int amount, bool free)
         {
             if (_isBlockedByInstantCraft?.Invoke(blueprint.targetItem) == true)
+                return null;
+
+            if (SuperCrafter?.Call("API_CanCraft", itemCrafter, blueprint, amount) is false)
                 return null;
 
             var basePlayer = itemCrafter.baseEntity;
