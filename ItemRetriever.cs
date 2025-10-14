@@ -16,8 +16,6 @@ namespace Oxide.Plugins
         [PluginReference]
         private readonly Plugin InstantCraft, SuperCrafter;
 
-        private static ItemRetriever _instance;
-
         private const int InventorySize = 24;
         private const Item.Flag SearchableItemFlag = (Item.Flag)(1 << 24);
         private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 25);
@@ -49,11 +47,6 @@ namespace Oxide.Plugins
 
         #region Hooks
 
-        private void Init()
-        {
-            _instance = this;
-        }
-
         private void OnServerInitialized()
         {
             RefreshInstantCraftCallback();
@@ -66,8 +59,6 @@ namespace Oxide.Plugins
             ObjectCache.Clear<float>();
             ObjectCache.Clear<ulong>();
             ObjectCache.Clear<Item.Flag>();
-
-            _instance = null;
         }
 
         private void OnPluginLoaded(Plugin plugin)
