@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.6")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.7")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -20,6 +20,7 @@ namespace Oxide.Plugins
         private const Item.Flag SearchableItemFlag = (Item.Flag)(1 << 24);
         private const Item.Flag UnsearchableItemFlag = (Item.Flag)(1 << 25);
         private const ItemDefinition.Flag SearchableItemDefinitionFlag = (ItemDefinition.Flag)(1 << 24);
+        private const int BlueprintItemId = -996920608;
 
         // The CustomItemDefinitions plugin adds this flag to all custom item definitions.
         // Custom items to be skipped when adding items to network messages, since they have invalid item ids.
@@ -621,6 +622,9 @@ namespace Oxide.Plugins
                 for (var i = 0; i < itemList.Count; i++)
                 {
                     var item = itemList[i];
+                    if (item.IsBlueprint())
+                        continue;
+
                     if (customItemDefinitionTracker.IsCustomItemDefinition(item))
                         continue;
 
@@ -649,6 +653,9 @@ namespace Oxide.Plugins
                 for (var i = 0; i < itemList.Count; i++)
                 {
                     var itemData = itemList[i];
+                    if (itemData.itemid == BlueprintItemId)
+                        continue;
+
                     if (customItemDefinitionTracker.IsCustomItemDefinition(itemData.itemid))
                         continue;
 
