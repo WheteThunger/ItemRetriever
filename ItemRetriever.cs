@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.7")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.8")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -96,8 +96,16 @@ namespace Oxide.Plugins
 
         private object OnInventoryItemsCount(PlayerInventory inventory, int itemId)
         {
+            var basePlayer = inventory.baseEntity;
+            if (basePlayer.activeTalkingToNpc is LivestockVendor)
+            {
+                // Disable retrieving while talking to a livestock vendor, until PlayerInventory.UseAmount has been
+                // properly hooked, to prevent free purchases.
+                return null;
+            }
+
             var itemQuery = new ItemIdQuery(itemId);
-            return ObjectCache.Get(SumPlayerItems(inventory.baseEntity, ref itemQuery, countPlayerWearables: true));
+            return ObjectCache.Get(SumPlayerItems(basePlayer, ref itemQuery, countPlayerWearables: true));
         }
 
         private object OnInventoryItemsTake(PlayerInventory inventory, List<Item> collect, int itemId, int amount)
