@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.8")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.9")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -427,6 +427,9 @@ namespace Oxide.Plugins
 
         #region Helper Methods
 
+        public static void LogWarning(string message) => Interface.Oxide.LogWarning($"[Item Retriever] {message}");
+        public static void LogError(string message) => Interface.Oxide.LogError($"[Item Retriever] {message}");
+
         private static void MarkInventoryDirty(BasePlayer player)
         {
             player.inventory?.containerMain?.MarkDirty();
@@ -434,11 +437,15 @@ namespace Oxide.Plugins
 
         private static int GetHighestUsedSlot(ProtoBuf.ItemContainer containerData)
         {
+            var contents = containerData?.contents;
+            if (contents == null)
+                return -1;
+
             var highestUsedSlot = -1;
 
-            for (var i = 0; i < containerData.contents.Count; i++)
+            for (var i = 0; i < contents.Count; i++)
             {
-                var item = containerData.contents[i];
+                var item = contents[i];
                 if (item.slot > highestUsedSlot)
                 {
                     highestUsedSlot = item.slot;
@@ -458,12 +465,16 @@ namespace Oxide.Plugins
             if (containerData == null)
                 return;
 
+            var inventory = player?.inventory;
+            if (inventory == null)
+                return;
+
             var firstAvailableInvisibleSlot = Math.Max(InventorySize, GetHighestUsedSlot(containerData) + 1);
             var nextInvisibleSlot = firstAvailableInvisibleSlot;
 
-            var itemsAdded = ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, player.inventory.containerMain.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
-                + ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, player.inventory.containerBelt.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
-                + ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, player.inventory.containerWear.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+            var itemsAdded = ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, inventory.containerMain?.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, inventory.containerBelt?.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
+                + ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, inventory.containerWear?.itemList, containerData, ref nextInvisibleSlot, addChildContainersOnly: true)
                 + _supplierManager.SerializeForNetwork(player, containerData, ref nextInvisibleSlot)
                 + _containerManager.SerializeForNetwork(player, containerData, ref nextInvisibleSlot);
 
@@ -625,12 +636,25 @@ namespace Oxide.Plugins
             public static int SerializeForNetwork(CustomItemDefinitionTracker customItemDefinitionTracker,
                 List<Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot, bool addChildContainersOnly = false)
             {
+                if (itemList == null || containerData == null)
+                    return 0;
+
                 var itemsAdded = 0;
 
                 for (var i = 0; i < itemList.Count; i++)
                 {
-                    var item = itemList[i];
-                    if (item.IsBlueprint())
+                    Item item;
+                    try
+                    {
+                        item = itemList[i];
+                    }
+                    catch (ArgumentOutOfRangeException ex)
+                    {
+                        LogWarning($"Ignoring ArgumentOutOfRangeException during SerializeForNetwork: {ex}");
+                        break;
+                    }
+
+                    if (item == null || item.IsBlueprint())
                         continue;
 
                     if (customItemDefinitionTracker.IsCustomItemDefinition(item))
@@ -638,7 +662,20 @@ namespace Oxide.Plugins
 
                     if (!addChildContainersOnly)
                     {
-                        var itemData = item.Save();
+                        ProtoBuf.Item itemData;
+
+                        // Item.Save() is not thread safe, as the child objects it reads can be modified by the main
+                        // server thread, so we assume this can throw exceptions.
+                        try
+                        {
+                            itemData = item.Save();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogWarning($"Ignoring Exception during SerializeForNetwork -> Item.Save(): {ex}");
+                            continue;
+                        }
+
                         itemData.slot = nextInvisibleSlot++;
                         containerData.contents.Add(itemData);
                         itemsAdded++;
@@ -656,12 +693,25 @@ namespace Oxide.Plugins
             public static int SerializeForNetwork(CustomItemDefinitionTracker customItemDefinitionTracker,
                 List<ProtoBuf.Item> itemList, ProtoBuf.ItemContainer containerData, ref int nextInvisibleSlot)
             {
+                if (itemList == null || containerData == null)
+                    return 0;
+
                 var itemsAdded = 0;
 
                 for (var i = 0; i < itemList.Count; i++)
                 {
-                    var itemData = itemList[i];
-                    if (itemData.itemid == BlueprintItemId)
+                    ProtoBuf.Item itemData;
+                    try
+                    {
+                        itemData = itemList[i];
+                    }
+                    catch (ArgumentOutOfRangeException ex)
+                    {
+                        LogWarning($"Ignoring ArgumentOutOfRangeException during SerializeForNetwork: {ex}");
+                        break;
+                    }
+
+                    if (itemData == null || itemData.itemid == BlueprintItemId)
                         continue;
 
                     if (customItemDefinitionTracker.IsCustomItemDefinition(itemData.itemid))
@@ -674,7 +724,7 @@ namespace Oxide.Plugins
                         itemData.UID = new ItemId(ulong.MaxValue - (ulong)nextInvisibleSlot);
                     }
 
-                    containerData.contents.Add(itemData);
+                    containerData.contents?.Add(itemData);
                     itemsAdded++;
 
                     if (HasSearchableContainer(itemData, out var childItemList))
@@ -1081,7 +1131,6 @@ namespace Oxide.Plugins
             private List<ItemSupplier> _beforeInventorySuppliers = new();
             private List<ItemSupplier> _afterInventorySuppliers = new();
 
-            private List<ProtoBuf.Item> _reusableItemListForNetwork = new(32);
             private Dictionary<string, object> _reusableItemQuery = new();
 
             public SupplierManager(CustomItemDefinitionTracker customItemDefinitionTracker)
@@ -1120,18 +1169,29 @@ namespace Oxide.Plugins
                 if (_allSuppliers.Count == 0)
                     return 0;
 
-                _reusableItemListForNetwork.Clear();
-
-                for (var i = 0; i < _allSuppliers.Count; i++)
+                var pooledItemList = Facepunch.Pool.Get<List<ProtoBuf.Item>>();
+                try
                 {
-                    _allSuppliers[i].SerializeForNetwork?.Invoke(player, _reusableItemListForNetwork);
+                    for (var i = 0; i < _allSuppliers.Count; i++)
+                    {
+                        var supplier = _allSuppliers[i];
+                        try
+                        {
+                            supplier.SerializeForNetwork?.Invoke(player, pooledItemList);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogWarning($"Ignoring ItemRetriever supplier serialization failure from {supplier.Plugin?.Name ?? "unknown"}: {ex.Message}");
+                        }
+                    }
+
+                    return ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, pooledItemList, containerData, ref nextInvisibleSlot);
                 }
-
-                var itemsAdded = ItemUtils.SerializeForNetwork(_customItemDefinitionTracker, _reusableItemListForNetwork, containerData, ref nextInvisibleSlot);
-
-                _reusableItemListForNetwork.Clear();
-
-                return itemsAdded;
+                finally
+                {
+                    pooledItemList.Clear();
+                    Facepunch.Pool.FreeUnmanaged(ref pooledItemList);
+                }
             }
 
             public void FindPlayerItems<T>(BasePlayer player, ref T itemQuery, List<Item> collect, bool beforeInventory = false) where T : IItemQuery
