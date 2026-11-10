@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("Item Retriever", "WhiteThunder", "0.7.9")]
+    [Info("Item Retriever", "WhiteThunder", "0.7.10")]
     [Description("Allows players to build, craft, reload and more using items from external containers.")]
     internal class ItemRetriever : CovalencePlugin
     {
@@ -1131,8 +1131,6 @@ namespace Oxide.Plugins
             private List<ItemSupplier> _beforeInventorySuppliers = new();
             private List<ItemSupplier> _afterInventorySuppliers = new();
 
-            private Dictionary<string, object> _reusableItemQuery = new();
-
             public SupplierManager(CustomItemDefinitionTracker customItemDefinitionTracker)
             {
                 _customItemDefinitionTracker = customItemDefinitionTracker;
@@ -1200,11 +1198,19 @@ namespace Oxide.Plugins
                 if (suppliers.Count == 0)
                     return;
 
-                itemQuery.PopulateItemQuery(_reusableItemQuery);
-
-                for (var i = 0; i < suppliers.Count; i++)
+                var itemQueryDict = Facepunch.Pool.Get<Dictionary<string, object>>();
+                try
                 {
-                    suppliers[i].FindPlayerItems?.Invoke(player, _reusableItemQuery, collect);
+                    itemQuery.PopulateItemQuery(itemQueryDict);
+
+                    for (var i = 0; i < suppliers.Count; i++)
+                    {
+                        suppliers[i].FindPlayerItems?.Invoke(player, itemQueryDict, collect);
+                    }
+                }
+                finally
+                {
+                    Facepunch.Pool.FreeUnmanaged(ref itemQueryDict);
                 }
             }
 
@@ -1213,16 +1219,24 @@ namespace Oxide.Plugins
                 if (_allSuppliers.Count == 0)
                     return 0;
 
-                itemQuery.PopulateItemQuery(_reusableItemQuery);
-
-                var sum = 0;
-
-                for (var i = 0; i < _allSuppliers.Count; i++)
+                var itemQueryDict = Facepunch.Pool.Get<Dictionary<string, object>>();
+                try
                 {
-                    sum += _allSuppliers[i].SumPlayerItems?.Invoke(player, _reusableItemQuery) ?? 0;
-                }
+                    itemQuery.PopulateItemQuery(itemQueryDict);
 
-                return sum;
+                    var sum = 0;
+
+                    for (var i = 0; i < _allSuppliers.Count; i++)
+                    {
+                        sum += _allSuppliers[i].SumPlayerItems?.Invoke(player, itemQueryDict) ?? 0;
+                    }
+
+                    return sum;
+                }
+                finally
+                {
+                    Facepunch.Pool.FreeUnmanaged(ref itemQueryDict);
+                }
             }
 
             public int TakePlayerItems<T>(BasePlayer player, ref T itemQuery, int amountToTake, List<Item> collect, ItemCraftTask itemCraftTask, bool beforeInventory = false) where T : IItemQuery
@@ -1231,21 +1245,29 @@ namespace Oxide.Plugins
                 if (suppliers.Count == 0)
                     return 0;
 
-                itemQuery.PopulateItemQuery(_reusableItemQuery);
-
-                var amountTaken = 0;
-
-                for (var i = 0; i < suppliers.Count; i++)
+                var itemQueryDict = Facepunch.Pool.Get<Dictionary<string, object>>();
+                try
                 {
-                    amountTaken += suppliers[i].TakePlayerItemsV2?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect, itemCraftTask)
-                        ?? suppliers[i].TakePlayerItems?.Invoke(player, _reusableItemQuery, amountToTake - amountTaken, collect)
-                        ?? 0;
+                    itemQuery.PopulateItemQuery(itemQueryDict);
 
-                    if (amountTaken >= amountToTake)
-                        return amountTaken;
+                    var amountTaken = 0;
+
+                    for (var i = 0; i < suppliers.Count; i++)
+                    {
+                        amountTaken += suppliers[i].TakePlayerItemsV2?.Invoke(player, itemQueryDict, amountToTake - amountTaken, collect, itemCraftTask)
+                            ?? suppliers[i].TakePlayerItems?.Invoke(player, itemQueryDict, amountToTake - amountTaken, collect)
+                            ?? 0;
+
+                        if (amountTaken >= amountToTake)
+                            return amountTaken;
+                    }
+
+                    return amountTaken;
                 }
-
-                return amountTaken;
+                finally
+                {
+                    Facepunch.Pool.FreeUnmanaged(ref itemQueryDict);
+                }
             }
 
             public void FindPlayerAmmo(BasePlayer player, AmmoTypes ammoType, List<Item> collect, bool beforeInventory = false)
